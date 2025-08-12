@@ -9,6 +9,11 @@
     --clock-spacing: 0.5rem;
 }
 
+/* Ensure smooth background transitions */
+.container {
+    transition: background-image 2s ease-in-out !important;
+}
+
 .demo-element {
     opacity: 0;
     transition: opacity 1s ease-in-out;
@@ -21,7 +26,6 @@
 /* Override clock display for demo */
 .clock-display.demo-element {
     display: block !important;
-    margin-top: 0rem !important;
 }
 
 /* Override icon animation styles for demo */

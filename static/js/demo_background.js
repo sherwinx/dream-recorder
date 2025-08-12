@@ -7,7 +7,7 @@ class DemoBackgroundManager {
     constructor() {
         this.container = document.getElementById('container');
         this.currentImage = null;
-        this.fadeDuration = 1000;
+        this.fadeDuration = 2000; // Increased to 2 seconds for smoother transitions
         this.updateInterval = 10000; // Update every 10 seconds for more frequent changes
         this.isLoading = false;
         this.totalImages = parseInt(document.body.dataset.totalBackgroundImages);
