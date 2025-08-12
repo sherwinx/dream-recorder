@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dream Recorder Demo</title>
+    
+    <!-- Favicons -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon/favicon-16x16.png">
+    <link rel="shortcut icon" href="/static/favicon/favicon.ico">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Ballet&display=swap" rel="stylesheet">
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/icon-animations.css">
+    <link rel="stylesheet" href="/static/css/clock.css">
+    <link rel="stylesheet" href="/static/css/demo.css">
+
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" integrity="sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+" crossorigin="anonymous"></script>
+</head>
+<body data-total-background-images="{{ total_background_images }}">
+    <div class="container" id="container">
+        <!-- Logo -->
+        <div class="startup-logo demo-element" id="logo">
+            <img src="/static/images/Logo.png">
+        </div>
+        
+        <!-- Clock Display -->
+        <div id="clockDisplay" class="clock-display demo-element">
+            <div class="clock-digits">
+                <span class="digit hour-tens">0</span>
+                <span class="digit hour-ones">0</span>
+                <span class="colon">:</span>
+                <span class="digit minute-tens">0</span>
+                <span class="digit minute-ones">0</span>
+            </div>
+        </div>
+        
+        <!-- Icon Animations -->
+        <div id="icon-animations">
+            <div class="icon-animation recording-animation demo-element" id="recording-icon"></div>
+            <div class="icon-animation generating-animation demo-element" id="generating-icon"></div>
+        </div>
+    </div>
+
+    <!-- Demo Scripts -->
+    <script src="/static/js/demo_background.js"></script>
+    <script src="/static/js/demo.js"></script>
+</body>
+</html>

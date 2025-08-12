@@ -1,0 +1,42 @@
+/* Demo-specific styles */
+
+/* Set clock CSS variables from the clock config */
+:root {
+    --clock-font-family: 'Ballet', cursive;
+    --clock-font-size: 12rem;
+    --clock-color: #ffffff;
+    --clock-font-weight: normal;
+    --clock-spacing: 0.5rem;
+}
+
+.demo-element {
+    opacity: 0;
+    transition: opacity 1s ease-in-out;
+}
+
+.demo-element.visible {
+    opacity: 1;
+}
+
+/* Override clock display for demo */
+.clock-display.demo-element {
+    display: block !important;
+    margin-top: 0rem !important;
+}
+
+/* Override icon animation styles for demo */
+.icon-animation.demo-element {
+    display: block !important;
+}
+
+/* Ensure recording icon is visible when shown */
+.recording-animation {
+    margin-top: 0.5rem !important;
+    background-image: url('/static/images/icons/recording.webp');
+}
+
+/* Ensure generating icon is visible when shown */
+.generating-animation {
+    margin-top: 0.5rem !important;
+    background-image: url('/static/images/icons/generating.webp');
+}
