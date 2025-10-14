@@ -54,4 +54,4 @@ def handle_disconnect():
 
 if __name__ == '__main__':
     logger.info("Starting Dream Recorder Demo Application")
-    socketio.run(app, host=app.config['HOST'], port=app.config['PORT'], debug=app.config['DEBUG'])
+    socketio.run(app, host=app.config['HOST'], port=app.config['PORT'], debug=app.config['DEBUG'], allow_unsafe_werkzeug=True)
