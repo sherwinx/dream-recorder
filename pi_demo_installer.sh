@@ -71,7 +71,7 @@ Flask==2.3.3
 flask-socketio==5.3.5
 python-socketio==5.9.0
 python-engineio==4.7.1
-gevent==23.9.1
+gevent==24.2.1
 gevent-websocket==0.10.1
 EOL
 
