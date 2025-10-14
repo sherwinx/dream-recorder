@@ -23,8 +23,8 @@ app.config.update(
     PORT=5000
 )
 
-# Initialize SocketIO
-socketio = SocketIO(app, cors_allowed_origins="*")
+# Initialize SocketIO without gevent
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 def get_total_background_images():
     """Count the total number of background images available."""
