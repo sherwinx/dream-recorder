@@ -32,7 +32,7 @@ function updateUIForState(state) {
     const container = document.querySelector('.container');
     
     // Remove all state classes
-    container.classList.remove('clock', 'recording', 'processing', 'playback', 'error');
+    container.classList.remove('clock', 'recording', 'processing', 'playback', 'error', 'sleep');
     
     // Add current state class
     container.classList.add(state);

@@ -37,6 +37,30 @@ def test_gpio_double_tap(test_client, mocker):
     assert resp.get_json()['status'] == 'success'
     mock_emit.assert_called_with('device_event', {'eventType': 'double_tap'})
 
+def test_device_state_get_and_post(test_client):
+    resp = test_client.post('/api/device_state', json={'state': 'clock'})
+    assert resp.status_code == 200
+    assert resp.get_json()['state'] == 'clock'
+
+    resp = test_client.get('/api/device_state')
+    assert resp.status_code == 200
+    assert resp.get_json()['state'] == 'clock'
+
+def test_device_state_requires_state(test_client):
+    resp = test_client.post('/api/device_state', json={})
+    assert resp.status_code == 400
+
+def test_screen_sleep_and_wake_events(test_client, mocker):
+    mock_emit = mocker.patch('dream_recorder.socketio.emit')
+
+    resp = test_client.post('/api/screen_sleep')
+    assert resp.status_code == 200
+    mock_emit.assert_called_with('device_event', {'eventType': 'sleep'})
+
+    resp = test_client.post('/api/screen_wake')
+    assert resp.status_code == 200
+    mock_emit.assert_called_with('device_event', {'eventType': 'wake'})
+
 def test_clock_config_path(test_client, mocker):
     # Normal
     resp = test_client.get('/api/clock-config-path')

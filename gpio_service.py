@@ -13,6 +13,7 @@ import requests
 import argparse
 from enum import Enum
 from functions.config_loader import get_config
+from functions.screen_sleep import ScreenSleepController
 import sys
 
 # Configure logging
@@ -72,7 +73,7 @@ class GPIOController:
         self.callbacks[pattern] = callback_func
         logger.info(f"Registered callback for {pattern.name}")
     
-    def start_monitoring(self, single_tap_max=None, double_tap_max_interval=None):
+    def start_monitoring(self, single_tap_max=None, double_tap_max_interval=None, idle_callback=None):
         """
         Start monitoring for touch sensor events with specific pattern detection.
         
@@ -91,7 +92,7 @@ class GPIOController:
                 current_time = time.time()
                 
                 if current_state != self.last_state:
-                    if current_time - self.last_change_time > self.debounce_time:
+                    if current_time - self.last_change_time + 1e-9 >= self.debounce_time:
                         self.last_change_time = current_time
                         self.last_state = current_state
 
@@ -115,6 +116,9 @@ class GPIOController:
                     if TouchPattern.SINGLE_TAP in self.callbacks:
                         self.callbacks[TouchPattern.SINGLE_TAP]()
                     self.tap_count = 0
+
+                if idle_callback:
+                    idle_callback()
                 
                 # Sleep for a bit to reduce CPU usage
                 time.sleep(self.sampling_rate)
@@ -258,33 +262,46 @@ def main():
     logger.info(f"Will send touch events to:")
     logger.info(f"  Single tap: {single_tap_url}")
     logger.info(f"  Double tap: {double_tap_url}")
+
+    screen_sleep = ScreenSleepController(
+        get_config(),
+        args.flask_url,
+        logger=logger,
+        requests_module=requests,
+    )
     
     # Define the callback functions for each touch pattern
     def single_tap_callback():
-        logger.info("Single tap detected, sending to server...")
-        try:
-            response = requests.post(single_tap_url)
-            if response.status_code == 200:
-                logger.info("Single tap processed successfully")
-            else:
+        def send_single_tap():
+            logger.info("Single tap detected, sending to server...")
+            try:
+                response = requests.post(single_tap_url)
+                if response.status_code == 200:
+                    logger.info("Single tap processed successfully")
+                else:
+                    if logger:
+                        logger.error(f"Failed to process single tap: {response.status_code} - {single_tap_url}")
+            except Exception as e:
                 if logger:
-                    logger.error(f"Failed to process single tap: {response.status_code} - {single_tap_url}")
-        except Exception as e:
-            if logger:
-                logger.error(f"Error sending single tap: {str(e)}")
+                    logger.error(f"Error sending single tap: {str(e)}")
+
+        screen_sleep.handle_touch(send_single_tap)
     
     def double_tap_callback():
-        logger.info("Double tap detected, sending to server...")
-        try:
-            response = requests.post(double_tap_url)
-            if response.status_code == 200:
-                logger.info("Double tap processed successfully")
-            else:
+        def send_double_tap():
+            logger.info("Double tap detected, sending to server...")
+            try:
+                response = requests.post(double_tap_url)
+                if response.status_code == 200:
+                    logger.info("Double tap processed successfully")
+                else:
+                    if logger:
+                        logger.error(f"Failed to process double tap: {response.status_code} - {double_tap_url}")
+            except Exception as e:
                 if logger:
-                    logger.error(f"Failed to process double tap: {response.status_code} - {double_tap_url}")
-        except Exception as e:
-            if logger:
-                logger.error(f"Error sending double tap: {str(e)}")
+                    logger.error(f"Error sending double tap: {str(e)}")
+
+        screen_sleep.handle_touch(send_double_tap)
     
     # Initialize GPIO with retry logic
     max_retries = 3
@@ -322,7 +339,8 @@ def main():
     try:
         controller.start_monitoring(
             single_tap_max=args.single_tap_max,
-            double_tap_max_interval=args.double_tap_max_interval
+            double_tap_max_interval=args.double_tap_max_interval,
+            idle_callback=screen_sleep.evaluate
         )
     except KeyboardInterrupt:
         logger.info("GPIO Service shutting down...")

@@ -53,10 +53,30 @@ fi
 # Copy .env if missing
 if [ ! -f "$SCRIPT_DIR/.env" ]; then
     # Prompt for API keys
-    echo -ne "Enter your OPENAI_API_KEY (from OpenAI dashboard): "
-    read -r OPENAI_API_KEY
-    if [[ ! "$OPENAI_API_KEY" =~ ^[A-Za-z0-9_-]{20,}$ ]]; then
-        log_error "OPENAI_API_KEY must be at least 20 alphanumeric characters. Exiting."
+    echo -ne "Enter your GEMINI_API_KEY (from Google AI Studio): "
+    read -r GEMINI_API_KEY
+    if [[ ! "$GEMINI_API_KEY" =~ ^[A-Za-z0-9_-]{20,}$ ]]; then
+        log_error "GEMINI_API_KEY must be at least 20 alphanumeric characters. Exiting."
+        exit 1
+    fi
+    echo -ne "Enter your GOOGLE_CLOUD_PROJECT ID: "
+    read -r GOOGLE_CLOUD_PROJECT
+    if [ -z "$GOOGLE_CLOUD_PROJECT" ]; then
+        log_error "GOOGLE_CLOUD_PROJECT is required. Exiting."
+        exit 1
+    fi
+    echo -ne "Enter container path for GOOGLE_APPLICATION_CREDENTIALS [/app/secrets/google-service-account.json]: "
+    read -r GOOGLE_APPLICATION_CREDENTIALS
+    GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/app/secrets/google-service-account.json}
+    if [ ! -f "$SCRIPT_DIR/secrets/google-service-account.json" ]; then
+        log_warn "Google service account JSON not found at $SCRIPT_DIR/secrets/google-service-account.json."
+        log_warn "Speech-to-Text will fail until the credential file exists or GOOGLE_APPLICATION_CREDENTIALS points to a mounted file."
+    fi
+    if [[ "$GOOGLE_APPLICATION_CREDENTIALS" =~ ^/run/secrets/ ]]; then
+        log_warn "Docker Compose currently bind-mounts the project at /app; use an explicit secret mount before using /run/secrets."
+    fi
+    if [[ -z "$GOOGLE_APPLICATION_CREDENTIALS" ]]; then
+        log_error "GOOGLE_APPLICATION_CREDENTIALS is required. Exiting."
         exit 1
     fi
     echo -ne "Enter your LUMALABS_API_KEY (from Luma Labs dashboard): "
@@ -66,7 +86,9 @@ if [ ! -f "$SCRIPT_DIR/.env" ]; then
         exit 1
     fi
     # Create .env from template, replacing placeholders
-    sed -e "s|OPENAI_API_KEY=your-openai-api-key-here|OPENAI_API_KEY=$OPENAI_API_KEY|" \
+    sed -e "s|GEMINI_API_KEY=your-gemini-api-key-here|GEMINI_API_KEY=$GEMINI_API_KEY|" \
+        -e "s|GOOGLE_CLOUD_PROJECT=your-google-cloud-project-id|GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT|" \
+        -e "s|GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/google-service-account.json|GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS|" \
         -e "s|LUMALABS_API_KEY=your-luma-labs-api-key-here|LUMALABS_API_KEY=$LUMALABS_API_KEY|" \
         "$SCRIPT_DIR/.env.example" > "$SCRIPT_DIR/.env"
     log_info "Created .env with provided API keys."
@@ -123,6 +145,12 @@ else
     sudo apt install -y jq
     log_info "jq installed."
 fi
+
+log_step "Installing host Python dependencies for GPIO service"
+sudo apt install -y python3-requests python3-astral
+
+log_step "Installing Wayland display control tools"
+sudo apt install -y wlr-randr
 
 # =============================
 # 6. Parse config.json for URLs
@@ -183,12 +211,12 @@ docker compose build
 # 9. API Key Validation (inside container)
 # =============================
 log_step "Testing API keys inside the container"
-if docker compose exec dream_recorder python scripts/test_openai_key.py; then
-    log_info "OpenAI API key is valid."
+if docker compose exec app python scripts/test_google_key.py; then
+    log_info "Gemini API key is valid."
 else
-    log_warn "OpenAI API key is invalid. Please check your .env file."
+    log_warn "Gemini API key is invalid. Please check your .env file."
 fi
-if docker compose exec dream_recorder python scripts/test_luma_key.py; then
+if docker compose exec app python scripts/test_luma_key.py; then
     log_info "Luma Labs API key is valid."
 else
     log_warn "Luma Labs API key is invalid. Please check your .env file."
@@ -214,6 +242,8 @@ After=network.target dream_recorder_docker.service
 [Service]
 Type=simple
 WorkingDirectory=$SCRIPT_DIR
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
 ExecStart=/usr/bin/python3 $SCRIPT_DIR/gpio_service.py
 StandardOutput=append:$LOGS_DIR/gpio_service.log
 StandardError=append:$LOGS_DIR/gpio_service.log

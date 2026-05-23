@@ -9,12 +9,14 @@ import logging
 import gevent
 import io
 import argparse
+from datetime import datetime, timezone
 
 from flask import Flask, render_template, jsonify, request, send_file
 from flask_socketio import SocketIO, emit
 from functions.dream_db import DreamDB
 from functions.audio import create_wav_file, process_audio
 from functions.config_loader import load_config, get_config
+from functions.screen_sleep import sleep_config_value
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, get_config()["LOG_LEVEL"]))
@@ -37,6 +39,11 @@ recording_state = {
 video_playback_state = {
     'current_index': 0,  # Index of the current video being played
     'is_playing': False  # Whether a video is currently playing
+}
+
+device_state = {
+    'state': 'startup',
+    'updated_at': datetime.now(timezone.utc).isoformat()
 }
 
 # Audio buffer for storing chunks
@@ -233,10 +240,56 @@ def api_get_config():
             'logo_fade_out_duration': int(config['LOGO_FADE_OUT_DURATION']),
             'clock_fade_in_duration': int(config['CLOCK_FADE_IN_DURATION']),
             'clock_fade_out_duration': int(config['CLOCK_FADE_OUT_DURATION']),
-            'transition_delay': int(config['TRANSITION_DELAY'])
+            'transition_delay': int(config['TRANSITION_DELAY']),
+            'screen_sleep_enabled': bool(sleep_config_value(config, 'SCREEN_SLEEP_ENABLED')),
+            'screen_sleep_timeout_seconds': int(sleep_config_value(config, 'SCREEN_SLEEP_TIMEOUT_SECONDS')),
+            'screen_sleep_mode': sleep_config_value(config, 'SCREEN_SLEEP_MODE')
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/device_state', methods=['GET', 'POST'])
+def api_device_state():
+    """Read or update the browser-facing device state for host-side services."""
+    try:
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            state = data.get('state')
+            if not state:
+                return jsonify({'status': 'error', 'message': 'state is required'}), 400
+            device_state['state'] = state
+            device_state['updated_at'] = datetime.now(timezone.utc).isoformat()
+        return jsonify(device_state)
+    except Exception as e:
+        if logger:
+            logger.error(f"Error in API device_state: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/screen_sleep', methods=['POST'])
+def api_screen_sleep():
+    """Notify browser clients that the host display was blanked."""
+    try:
+        device_state['state'] = 'sleep'
+        device_state['updated_at'] = datetime.now(timezone.utc).isoformat()
+        socketio.emit('device_event', {'eventType': 'sleep'})
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        if logger:
+            logger.error(f"Error in API screen_sleep: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/screen_wake', methods=['POST'])
+def api_screen_wake():
+    """Notify browser clients that the host display was awakened."""
+    try:
+        device_state['state'] = 'clock'
+        device_state['updated_at'] = datetime.now(timezone.utc).isoformat()
+        socketio.emit('device_event', {'eventType': 'wake'})
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        if logger:
+            logger.error(f"Error in API screen_wake: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/gpio_single_tap', methods=['POST'])
 def gpio_single_tap():

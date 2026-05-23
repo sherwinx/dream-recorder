@@ -7,7 +7,8 @@ const StateManager = {
         RECORDING: 'recording',
         PROCESSING: 'processing',
         PLAYBACK: 'playback',
-        ERROR: 'error'
+        ERROR: 'error',
+        SLEEP: 'sleep'
     },
 
     // Configuration (will be populated from server)
@@ -149,6 +150,7 @@ const StateManager = {
             } 
         });
         document.dispatchEvent(event);
+        this.reportDeviceState();
 
         // Hide errorDiv if leaving ERROR state
         if (this.currentState !== this.STATES.ERROR && window.errorDiv) {
@@ -245,6 +247,14 @@ const StateManager = {
         statusDiv.textContent = statusText;
     },
 
+    reportDeviceState() {
+        fetch('/api/device_state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state: this.currentState })
+        }).catch(error => console.error('Failed to report device state:', error));
+    },
+
     // Play latest video
     playLatestVideo() {
         console.log('Playing latest video');
@@ -298,7 +308,21 @@ const StateManager = {
         console.log(`Handling device event: ${eventType}`);
         
         switch (eventType) {
+            case 'sleep':
+                if (this.currentState === this.STATES.CLOCK) {
+                    this.updateState(this.STATES.SLEEP);
+                }
+                break;
+
+            case 'wake':
+                this.updateState(this.STATES.CLOCK);
+                break;
+
             case 'single_tap':
+                if (this.currentState === this.STATES.SLEEP) {
+                    this.updateState(this.STATES.CLOCK);
+                    break;
+                }
                 if (this.currentState === this.STATES.RECORDING) {
                     // Any tap during recording stops it
                     this.stopRecording();
@@ -318,6 +342,10 @@ const StateManager = {
                 break;
                 
             case 'double_tap':
+                if (this.currentState === this.STATES.SLEEP) {
+                    this.updateState(this.STATES.CLOCK);
+                    break;
+                }
                 if (this.currentState === this.STATES.CLOCK) {
                     // Double tap in clock state starts recording
                     this.startRecording();

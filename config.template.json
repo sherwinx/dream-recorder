@@ -57,56 +57,91 @@
         "type": "integer"
     },
     {
-        "name": "WHISPER_MODEL",
-        "category": "OpenAI",
-        "description": "Name of the OpenAI Whisper model to use for transcription.",
-        "default": "whisper-1",
+        "name": "TRANSCRIPTION_PROVIDER",
+        "category": "Google",
+        "description": "Speech transcription provider.",
+        "default": "google_speech",
         "type": "string",
         "options": [
-            "whisper-1",
-            "gpt-4o-transcribe",
-            "gpt-4o-mini-transcribe"
+            "google_speech"
         ]
     },
     {
-        "name": "GPT_MODEL",
-        "category": "OpenAI",
-        "description": "Name of the OpenAI GPT model to use for prompt generation.",
-        "default": "gpt-4o-mini",
+        "name": "GOOGLE_SPEECH_MODEL",
+        "category": "Google",
+        "description": "Google Cloud Speech-to-Text V2 model to use for transcription.",
+        "default": "chirp_3",
         "type": "string",
         "options": [
-            "gpt-4o-mini",
-            "gpt-4o",
-            "o1-mini"
+            "chirp_3"
         ]
+    },
+    {
+        "name": "GOOGLE_SPEECH_REGION",
+        "category": "Google",
+        "description": "Google Cloud Speech-to-Text region or multi-region.",
+        "default": "us",
+        "type": "string"
+    },
+    {
+        "name": "GOOGLE_SPEECH_LANGUAGE_CODES",
+        "category": "Google",
+        "description": "Language codes for Speech-to-Text. Use [\"auto\"] for Chirp 3 automatic language detection.",
+        "default": ["auto"],
+        "type": "array"
+    },
+    {
+        "name": "GOOGLE_SPEECH_CHUNK_SECONDS",
+        "category": "Google",
+        "description": "Maximum local audio chunk duration before sending to synchronous Speech-to-Text.",
+        "default": 55,
+        "type": "integer"
+    },
+    {
+        "name": "GOOGLE_SPEECH_MAX_INLINE_MB",
+        "category": "Google",
+        "description": "Maximum inline audio payload size before forcing local chunking.",
+        "default": 9,
+        "type": "integer"
+    },
+    {
+        "name": "GEMINI_PROMPT_MODEL",
+        "category": "Google",
+        "description": "Gemini model to use for Luma prompt generation.",
+        "default": "gemini-2.5-flash",
+        "type": "string",
+        "options": [
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite"
+        ]
+    },
+    {
+        "name": "GEMINI_THINKING_BUDGET",
+        "category": "Google",
+        "description": "Thinking token budget for Gemini prompt generation. Use -1 for dynamic thinking, or 0 to disable thinking for Gemini 2.5 Flash.",
+        "default": -1,
+        "type": "integer"
     },
     {
         "name": "GPT_SYSTEM_PROMPT",
-        "category": "OpenAI",
-        "description": "System prompt for the GPT model (single-sentence version).",
+        "category": "Google",
+        "description": "System prompt for the Gemini model (single-sentence version).",
         "default": "You are a creative video prompt engineer specializing in Luma Dream Machine. Your task is to transform dream descriptions into cinematic video prompts using clear, simple language. Be specific about useful visual elements and emotional tone. Keep the prompt concise but rich in visual detail, formatted as a single, succinct sentence.",
         "type": "string"
     },
     {
         "name": "GPT_SYSTEM_PROMPT_EXTEND",
-        "category": "OpenAI",
-        "description": "System prompt for the GPT model (two-sentence/extended version).",
+        "category": "Google",
+        "description": "System prompt for the Gemini model (two-sentence/extended version).",
         "default": "You are a creative video prompt engineer specializing in Luma Dream Machine. Your task is to transform dream descriptions into  cinematic video prompts using clear, simple language. Be specific about useful visual elements and emotional tone. Keep the prompt concise but rich in visual detail, formatted as two succinct sentences. Break down the prompt into exactly two clear separate parts, using '*****' as a separator between part one and part two.",
         "type": "string"
     },
     {
         "name": "GPT_TEMPERATURE",
-        "category": "OpenAI",
-        "description": "Sampling temperature for GPT.",
+        "category": "Google",
+        "description": "Sampling temperature for Gemini.",
         "default": 0.7,
         "type": "float"
-    },
-    {
-        "name": "GPT_MAX_TOKENS",
-        "category": "OpenAI",
-        "description": "Maximum number of tokens for GPT responses.",
-        "default": 400,
-        "type": "integer"
     },
     {
         "name": "CLOCK_FADE_IN_DURATION",
@@ -337,6 +372,27 @@
         "type": "string"
     },
     {
+        "name": "GPIO_DEVICE_STATE_ENDPOINT",
+        "category": "GPIO",
+        "description": "API endpoint used by the GPIO service to read the browser state.",
+        "default": "/api/device_state",
+        "type": "string"
+    },
+    {
+        "name": "GPIO_SCREEN_SLEEP_ENDPOINT",
+        "category": "GPIO",
+        "description": "API endpoint used by the GPIO service after blanking the display.",
+        "default": "/api/screen_sleep",
+        "type": "string"
+    },
+    {
+        "name": "GPIO_SCREEN_WAKE_ENDPOINT",
+        "category": "GPIO",
+        "description": "API endpoint used by the GPIO service after waking the display.",
+        "default": "/api/screen_wake",
+        "type": "string"
+    },
+    {
         "name": "GPIO_SINGLE_TAP_MAX_DURATION",
         "category": "GPIO",
         "description": "Max duration (seconds) for a single tap to be recognized.",
@@ -370,5 +426,99 @@
         "description": "Sampling rate (seconds) for reading GPIO pin state.",
         "default": 0.01,
         "type": "float"
+    },
+    {
+        "name": "SCREEN_SLEEP_ENABLED",
+        "category": "Screen Sleep",
+        "description": "Whether to enable host-side display blanking after clock inactivity.",
+        "default": true,
+        "type": "boolean"
+    },
+    {
+        "name": "SCREEN_SLEEP_TIMEOUT_SECONDS",
+        "category": "Screen Sleep",
+        "description": "Seconds of clock inactivity before blanking the display at night.",
+        "default": 300,
+        "type": "integer"
+    },
+    {
+        "name": "SCREEN_SLEEP_MODE",
+        "category": "Screen Sleep",
+        "description": "When screen sleep is allowed.",
+        "default": "night_only",
+        "type": "string",
+        "options": ["night_only", "always"]
+    },
+    {
+        "name": "SCREEN_SLEEP_STATE_POLL_INTERVAL",
+        "category": "Screen Sleep",
+        "description": "Seconds between GPIO service polls of the browser state.",
+        "default": 5,
+        "type": "integer"
+    },
+    {
+        "name": "LOCATION_PROVIDER",
+        "category": "Screen Sleep",
+        "description": "Provider used to infer device latitude, longitude, and timezone.",
+        "default": "ipwhois",
+        "type": "string",
+        "options": ["ipwhois"]
+    },
+    {
+        "name": "SOLAR_PROVIDER",
+        "category": "Screen Sleep",
+        "description": "Provider used to fetch sunrise and sunset times.",
+        "default": "sunrise_sunset_api",
+        "type": "string",
+        "options": ["sunrise_sunset_api"]
+    },
+    {
+        "name": "SOLAR_CACHE_PATH",
+        "category": "Screen Sleep",
+        "description": "Local JSON cache for location and sunrise/sunset schedules.",
+        "default": "db/solar_schedule_cache.json",
+        "type": "string"
+    },
+    {
+        "name": "DEFAULT_LATITUDE",
+        "category": "Screen Sleep",
+        "description": "Fallback latitude used when IP geolocation and cache are unavailable.",
+        "default": 34.0522,
+        "type": "float"
+    },
+    {
+        "name": "DEFAULT_LONGITUDE",
+        "category": "Screen Sleep",
+        "description": "Fallback longitude used when IP geolocation and cache are unavailable.",
+        "default": -118.2437,
+        "type": "float"
+    },
+    {
+        "name": "DEFAULT_TIMEZONE",
+        "category": "Screen Sleep",
+        "description": "Fallback IANA timezone used when IP geolocation and cache are unavailable.",
+        "default": "America/Los_Angeles",
+        "type": "string"
+    },
+    {
+        "name": "SCREEN_SLEEP_BLANK_COMMAND",
+        "category": "Screen Sleep",
+        "description": "Host command used to blank the Raspberry Pi display.",
+        "default": "wlr-randr --output HDMI-A-1 --off",
+        "type": "string"
+    },
+    {
+        "name": "SCREEN_SLEEP_WAKE_COMMAND",
+        "category": "Screen Sleep",
+        "description": "Host command used to wake the Raspberry Pi display.",
+        "default": "wlr-randr --output HDMI-A-1 --on --mode 400x1280@59.506001Hz --transform 270 --scale 1",
+        "type": "string"
+    },
+    {
+        "name": "SCREEN_SLEEP_DISPLAY",
+        "category": "Screen Sleep",
+        "description": "X11 DISPLAY value used when running screen blank/wake commands.",
+        "default": ":0",
+        "type": "string"
     }
 ]
