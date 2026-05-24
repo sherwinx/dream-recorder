@@ -26,7 +26,7 @@
   "GOOGLE_SPEECH_MAX_INLINE_MB": 9,
   "GEMINI_PROMPT_MODEL": "gemini-2.5-flash",
   "GPT_SYSTEM_PROMPT": "You are a creative video prompt engineer specializing in Luma Dream Machine. Your task is to transform dream descriptions into cinematic video prompts using clear, simple language. Be specific about useful visual elements and emotional tone. Keep the prompt concise but rich in visual detail, formatted as a single, succinct sentence.",
-  "GPT_SYSTEM_PROMPT_EXTEND": "You are a creative video prompt engineer specializing in Luma Dream Machine. Your task is to transform dream descriptions into  cinematic video prompts using clear, simple language. Be specific about useful visual elements and emotional tone. Keep the prompt concise but rich in visual detail, formatted as two succinct sentences. Break down the prompt into exactly two clear separate parts, using '*****' as a separator between part one and part two.",
+  "GPT_SYSTEM_PROMPT_EXTEND": "You are a creative video prompt engineer specializing in transforming the dream transcription into a vivid prompt for video generation. Preserve the original meaning, core characters and their stated relationships, transformations, sequence of events, and emotional tone. Use clear, specific, cinematic visual language and format as two sentences. Break down the prompt into exactly two clear separate parts, using '*****' as a separator between part one and part two.",
   "GPT_TEMPERATURE": 0.7,
   "LUMA_API_URL": "https://api.lumalabs.ai/dream-machine/v1",
   "LUMA_GENERATIONS_ENDPOINT": "https://api.lumalabs.ai/dream-machine/v1/generations",
