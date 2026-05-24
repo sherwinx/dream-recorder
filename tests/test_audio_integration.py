@@ -9,13 +9,19 @@ def mock_config(monkeypatch):
         'AUDIO_SAMPLE_WIDTH': 2,
         'AUDIO_FRAME_RATE': 44100,
         'RECORDINGS_DIR': '/tmp',
-        'OPENAI_API_KEY': 'sk-test',
+        'GEMINI_API_KEY': 'gemini-test',
+        'GOOGLE_CLOUD_PROJECT': 'test-project',
+        'TRANSCRIPTION_PROVIDER': 'google_speech',
+        'GOOGLE_SPEECH_MODEL': 'chirp_3',
+        'GOOGLE_SPEECH_REGION': 'us',
+        'GOOGLE_SPEECH_LANGUAGE_CODES': ['auto'],
+        'GOOGLE_SPEECH_CHUNK_SECONDS': 55,
+        'GOOGLE_SPEECH_MAX_INLINE_MB': 9,
+        'GEMINI_PROMPT_MODEL': 'gemini-2.5-flash',
+        'GEMINI_THINKING_BUDGET': -1,
         'GPT_SYSTEM_PROMPT': 'Prompt',
         'GPT_SYSTEM_PROMPT_EXTEND': 'PromptExt',
-        'GPT_MODEL': 'gpt-3.5-turbo',
         'GPT_TEMPERATURE': 0.5,
-        'GPT_MAX_TOKENS': 100,
-        'WHISPER_MODEL': 'whisper-1',
         'LUMA_EXTEND': '0',
     })
 
@@ -24,15 +30,30 @@ def mock_logger():
     return mock.Mock()
 
 def test_generate_video_prompt_success(monkeypatch, mock_config, mock_logger):
-    fake_response = mock.Mock()
-    fake_response.choices = [mock.Mock(message=mock.Mock(content='Generated prompt'))]
-    monkeypatch.setattr(audio.client.chat.completions, 'create', lambda **kwargs: fake_response)
+    fake_client = mock.Mock()
+    fake_client.models.generate_content.return_value = mock.Mock(text='Generated prompt')
+    fake_genai = mock.Mock(Client=mock.Mock(return_value=fake_client))
+    fake_types = mock.Mock(
+        GenerateContentConfig=lambda **kwargs: kwargs,
+        ThinkingConfig=lambda **kwargs: kwargs,
+    )
+    monkeypatch.setattr(audio, '_get_genai_modules', lambda: (fake_genai, fake_types))
+
     result = audio.generate_video_prompt('transcript', luma_extend=False, logger=mock_logger)
+
     assert result == 'Generated prompt'
+    fake_client.models.generate_content.assert_called_once()
+    call = fake_client.models.generate_content.call_args.kwargs
+    assert call['model'] == 'gemini-2.5-flash'
+    assert call['contents'] == ['transcript']
+    assert call['config']['system_instruction'] == 'Prompt'
+    assert call['config']['thinking_config']['thinking_budget'] == -1
+    assert 'max_output_tokens' not in call['config']
 
 def test_generate_video_prompt_error(monkeypatch, mock_config, mock_logger):
-    def raise_exc(**kwargs): raise Exception('gpt fail')
-    monkeypatch.setattr(audio.client.chat.completions, 'create', raise_exc)
+    def raise_exc():
+        raise Exception('gemini fail')
+    monkeypatch.setattr(audio, '_get_genai_modules', raise_exc)
     result = audio.generate_video_prompt('transcript', luma_extend=False, logger=mock_logger)
     assert result is None
     mock_logger.error.assert_called()
@@ -40,10 +61,8 @@ def test_generate_video_prompt_error(monkeypatch, mock_config, mock_logger):
 def test_process_audio_success(monkeypatch, mock_config, mock_logger):
     # Patch save_wav_file
     monkeypatch.setattr(audio, 'save_wav_file', lambda *a, **k: 'file.wav')
-    # Patch OpenAI Whisper
-    fake_transcription = mock.Mock(text='hello world')
-    fake_audio = mock.Mock()
-    monkeypatch.setattr(audio.client.audio.transcriptions, 'create', lambda **kwargs: fake_transcription)
+    # Patch Google Speech
+    monkeypatch.setattr(audio, 'transcribe_audio', lambda *a, **k: 'hello world')
     # Patch generate_video_prompt
     monkeypatch.setattr(audio, 'generate_video_prompt', lambda *a, **k: 'video prompt')
     # Patch generate_video
@@ -81,9 +100,8 @@ def test_process_audio_error(monkeypatch, mock_config, mock_logger):
 def test_process_audio_finally_clears_chunks(monkeypatch, mock_config, mock_logger):
     # Patch save_wav_file
     monkeypatch.setattr(audio, 'save_wav_file', lambda *a, **k: 'file.wav')
-    # Patch OpenAI Whisper
-    fake_transcription = mock.Mock(text='hello world')
-    monkeypatch.setattr(audio.client.audio.transcriptions, 'create', lambda **kwargs: fake_transcription)
+    # Patch Google Speech
+    monkeypatch.setattr(audio, 'transcribe_audio', lambda *a, **k: 'hello world')
     # Patch generate_video_prompt
     monkeypatch.setattr(audio, 'generate_video_prompt', lambda *a, **k: 'video prompt')
     # Patch generate_video
@@ -100,9 +118,8 @@ def test_process_audio_finally_clears_chunks(monkeypatch, mock_config, mock_logg
 def test_process_audio_finally_unlink_exception(monkeypatch, mock_config, mock_logger):
     # Patch save_wav_file
     monkeypatch.setattr(audio, 'save_wav_file', lambda *a, **k: 'file.wav')
-    # Patch OpenAI Whisper
-    fake_transcription = mock.Mock(text='hello world')
-    monkeypatch.setattr(audio.client.audio.transcriptions, 'create', lambda **kwargs: fake_transcription)
+    # Patch Google Speech
+    monkeypatch.setattr(audio, 'transcribe_audio', lambda *a, **k: 'hello world')
     # Patch generate_video_prompt
     monkeypatch.setattr(audio, 'generate_video_prompt', lambda *a, **k: 'video prompt')
     # Patch generate_video
@@ -115,4 +132,4 @@ def test_process_audio_finally_unlink_exception(monkeypatch, mock_config, mock_l
     audio_chunks = [b'audio']
     audio.process_audio('sid', fake_socketio, fake_db, recording_state, audio_chunks, logger=mock_logger)
     # Should complete without raising, even though os.unlink fails
-    assert recording_state['status'] == 'complete' 
+    assert recording_state['status'] == 'complete'

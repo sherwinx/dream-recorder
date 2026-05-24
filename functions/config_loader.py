@@ -9,7 +9,9 @@ def load_config():
     # Load API keys from .env
     load_dotenv()
     api_keys = {
-        "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
+        "GEMINI_API_KEY": os.getenv("GEMINI_API_KEY"),
+        "GOOGLE_CLOUD_PROJECT": os.getenv("GOOGLE_CLOUD_PROJECT"),
+        "GOOGLE_APPLICATION_CREDENTIALS": os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
         "LUMALABS_API_KEY": os.getenv("LUMALABS_API_KEY"),
     }
 
@@ -28,4 +30,4 @@ def get_config():
     global _config
     if _config is None:
         return load_config()
-    return _config 
+    return _config

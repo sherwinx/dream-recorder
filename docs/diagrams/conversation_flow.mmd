@@ -5,7 +5,7 @@ sequenceDiagram
     participant TS as Touch Sensor
     participant GPIO as GPIO Service
     participant DM as Dream Machine
-    participant OpenAI as OpenAI
+    participant Google as Google Speech/Gemini
     participant LL as LumaLabs
     
     Note over U,DM: Recording dream
@@ -18,10 +18,10 @@ sequenceDiagram
     GPIO ->> DM: Sends stop recording request
     
     Note over DM,LL: Processing dream
-    DM ->> OpenAI: Sends dream voice for STT
-    OpenAI -->> DM: Returns voice text
-    DM ->> OpenAI: Sends voice text for Video Prompt creation
-    OpenAI -->> DM: Returns Video Prompt
+    DM ->> Google: Sends dream voice chunks for STT
+    Google -->> DM: Returns voice text
+    DM ->> Google: Sends voice text for Video Prompt creation
+    Google -->> DM: Returns Video Prompt
     DM ->> LL: Sends Video Prompt for video creation
     DM -->> LL: Pings for finished response
     DM -->> DM: Waits

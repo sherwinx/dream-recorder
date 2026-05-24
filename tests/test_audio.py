@@ -12,13 +12,19 @@ def mock_config(monkeypatch):
         'AUDIO_SAMPLE_WIDTH': 2,
         'AUDIO_FRAME_RATE': 44100,
         'RECORDINGS_DIR': tempfile.gettempdir(),
-        'OPENAI_API_KEY': 'sk-test',
+        'GEMINI_API_KEY': 'gemini-test',
+        'GOOGLE_CLOUD_PROJECT': 'test-project',
+        'TRANSCRIPTION_PROVIDER': 'google_speech',
+        'GOOGLE_SPEECH_MODEL': 'chirp_3',
+        'GOOGLE_SPEECH_REGION': 'us',
+        'GOOGLE_SPEECH_LANGUAGE_CODES': ['auto'],
+        'GOOGLE_SPEECH_CHUNK_SECONDS': 55,
+        'GOOGLE_SPEECH_MAX_INLINE_MB': 9,
+        'GEMINI_PROMPT_MODEL': 'gemini-2.5-flash',
+        'GEMINI_THINKING_BUDGET': -1,
         'GPT_SYSTEM_PROMPT': 'Prompt',
         'GPT_SYSTEM_PROMPT_EXTEND': 'PromptExt',
-        'GPT_MODEL': 'gpt-3.5-turbo',
         'GPT_TEMPERATURE': 0.5,
-        'GPT_MAX_TOKENS': 100,
-        'WHISPER_MODEL': 'whisper-1',
         'LUMA_EXTEND': '0',
     })
 
@@ -74,10 +80,57 @@ def test_save_wav_file_timestamp(monkeypatch, mock_config, mock_logger):
     assert filename.startswith('recording_') and filename.endswith('.wav')
     mock_logger.info.assert_called()
 
+def test_transcribe_audio_short_audio_calls_google_once(monkeypatch, mock_config, mock_logger):
+    calls = []
+    monkeypatch.setattr(audio, 'get_wav_duration_seconds', lambda path: 10)
+    monkeypatch.setattr(audio.os.path, 'getsize', lambda path: 1024)
+    monkeypatch.setattr(audio, 'split_wav_file', mock.Mock())
+    monkeypatch.setattr(
+        audio,
+        'transcribe_wav_chunk_google',
+        lambda path, config=None: calls.append(path) or 'short transcript',
+    )
+
+    result = audio.transcribe_audio('/tmp/audio.wav', logger=mock_logger)
+
+    assert result == 'short transcript'
+    assert calls == ['/tmp/audio.wav']
+    audio.split_wav_file.assert_not_called()
+
+def test_transcribe_audio_long_audio_splits_and_joins(monkeypatch, mock_config, mock_logger):
+    monkeypatch.setattr(audio, 'get_wav_duration_seconds', lambda path: 120)
+    monkeypatch.setattr(audio.os.path, 'getsize', lambda path: 1024)
+    monkeypatch.setattr(audio, 'split_wav_file', lambda *a, **k: ['/tmp/chunk1.wav', '/tmp/chunk2.wav'])
+    monkeypatch.setattr(audio.os, 'unlink', mock.Mock())
+    monkeypatch.setattr(
+        audio,
+        'transcribe_wav_chunk_google',
+        lambda path, config=None: {'/tmp/chunk1.wav': 'first', '/tmp/chunk2.wav': 'second'}[path],
+    )
+
+    result = audio.transcribe_audio('/tmp/audio.wav', logger=mock_logger)
+
+    assert result == 'first second'
+    audio.os.unlink.assert_any_call('/tmp/chunk1.wav')
+    audio.os.unlink.assert_any_call('/tmp/chunk2.wav')
+
+def test_extract_transcript_from_google_response():
+    response = mock.Mock()
+    response.results = [
+        mock.Mock(alternatives=[mock.Mock(transcript='hello')]),
+        mock.Mock(alternatives=[mock.Mock(transcript='world')]),
+    ]
+
+    assert audio._extract_transcript_from_response(response) == 'hello world'
+
+def test_normalize_transcription_for_prompt_collapses_spaced_chinese():
+    result = audio.normalize_transcription_for_prompt('我 和 爸 妈 在 侏 罗 纪 公 园 变 成 了 一 只 猪 。')
+
+    assert result == '我和爸妈在侏罗纪公园变成了一只猪。'
+
 def test_process_audio_no_sid(monkeypatch, mock_config, mock_logger):
     monkeypatch.setattr(audio, 'save_wav_file', lambda *a, **k: 'file.wav')
-    fake_transcription = mock.Mock(text='hello world')
-    monkeypatch.setattr(audio.client.audio.transcriptions, 'create', lambda **kwargs: fake_transcription)
+    monkeypatch.setattr(audio, 'transcribe_audio', lambda *a, **k: 'hello world')
     monkeypatch.setattr(audio, 'generate_video_prompt', lambda *a, **k: 'video prompt')
     monkeypatch.setattr(audio, 'generate_video', lambda *a, **k: ('video.mp4', 'thumb.png'))
     fake_db = mock.Mock()
@@ -91,8 +144,7 @@ def test_process_audio_no_sid(monkeypatch, mock_config, mock_logger):
 
 def test_process_audio_finally_cleanup(monkeypatch, mock_config, mock_logger):
     monkeypatch.setattr(audio, 'save_wav_file', lambda *a, **k: 'file.wav')
-    fake_transcription = mock.Mock(text='hello world')
-    monkeypatch.setattr(audio.client.audio.transcriptions, 'create', lambda **kwargs: fake_transcription)
+    monkeypatch.setattr(audio, 'transcribe_audio', lambda *a, **k: 'hello world')
     monkeypatch.setattr(audio, 'generate_video_prompt', lambda *a, **k: 'video prompt')
     monkeypatch.setattr(audio, 'generate_video', lambda *a, **k: ('video.mp4', 'thumb.png'))
     fake_db = mock.Mock()
@@ -119,8 +171,7 @@ def test_process_audio_finally_cleanup(monkeypatch, mock_config, mock_logger):
 
 def test_process_audio_finally_cleanup_unlink_error(monkeypatch, mock_config, mock_logger):
     monkeypatch.setattr(audio, 'save_wav_file', lambda *a, **k: 'file.wav')
-    fake_transcription = mock.Mock(text='hello world')
-    monkeypatch.setattr(audio.client.audio.transcriptions, 'create', lambda **kwargs: fake_transcription)
+    monkeypatch.setattr(audio, 'transcribe_audio', lambda *a, **k: 'hello world')
     monkeypatch.setattr(audio, 'generate_video_prompt', lambda *a, **k: 'video prompt')
     monkeypatch.setattr(audio, 'generate_video', lambda *a, **k: ('video.mp4', 'thumb.png'))
     fake_db = mock.Mock()
@@ -136,8 +187,7 @@ def test_process_audio_finally_cleanup_unlink_error(monkeypatch, mock_config, mo
 
 def test_process_audio_emit_else_branches(monkeypatch, mock_config, mock_logger):
     monkeypatch.setattr(audio, 'save_wav_file', lambda *a, **k: 'file.wav')
-    fake_transcription = mock.Mock(text='hello world')
-    monkeypatch.setattr(audio.client.audio.transcriptions, 'create', lambda **kwargs: fake_transcription)
+    monkeypatch.setattr(audio, 'transcribe_audio', lambda *a, **k: 'hello world')
     monkeypatch.setattr(audio, 'generate_video_prompt', lambda *a, **k: 'video prompt')
     monkeypatch.setattr(audio, 'generate_video', lambda *a, **k: ('video.mp4', 'thumb.png'))
     fake_db = mock.Mock()
@@ -153,10 +203,10 @@ def test_process_audio_emit_else_branches(monkeypatch, mock_config, mock_logger)
 def test_process_audio_exception_and_finally(monkeypatch, mock_config, mock_logger):
     # Patch save_wav_file to work
     monkeypatch.setattr(audio, 'save_wav_file', lambda *a, **k: 'file.wav')
-    # Patch transcription to raise after temp_file_path is set
-    def raise_exc(**kwargs):
+    # Patch transcription to raise
+    def raise_exc(*args, **kwargs):
         raise Exception('fail')
-    monkeypatch.setattr(audio.client.audio.transcriptions, 'create', raise_exc)
+    monkeypatch.setattr(audio, 'transcribe_audio', raise_exc)
     monkeypatch.setattr(audio, 'generate_video_prompt', lambda *a, **k: 'video prompt')
     monkeypatch.setattr(audio, 'generate_video', lambda *a, **k: ('video.mp4', 'thumb.png'))
     fake_db = mock.Mock()
@@ -172,8 +222,7 @@ def test_process_audio_exception_and_finally(monkeypatch, mock_config, mock_logg
 def test_process_audio_emit_sid_and_no_sid(monkeypatch, mock_config, mock_logger):
     # Patch dependencies
     monkeypatch.setattr(audio, 'save_wav_file', lambda *a, **k: 'file.wav')
-    fake_transcription = mock.Mock(text='hello world')
-    monkeypatch.setattr(audio.client.audio.transcriptions, 'create', lambda **kwargs: fake_transcription)
+    monkeypatch.setattr(audio, 'transcribe_audio', lambda *a, **k: 'hello world')
     monkeypatch.setattr(audio, 'generate_video_prompt', lambda *a, **k: 'video prompt')
     monkeypatch.setattr(audio, 'generate_video', lambda *a, **k: ('video.mp4', 'thumb.png'))
     fake_db = mock.Mock()
@@ -187,4 +236,4 @@ def test_process_audio_emit_sid_and_no_sid(monkeypatch, mock_config, mock_logger
     # Check that emit was called with and without room
     calls = [c for c in fake_socketio.emit.call_args_list]
     assert any('room' in c[1] for c in calls)  # with sid
-    assert any('room' not in c[1] for c in calls)  # without sid 
+    assert any('room' not in c[1] for c in calls)  # without sid

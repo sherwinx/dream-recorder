@@ -24,9 +24,9 @@ To build a Dream Recorder, these are the components you will need. The overall c
 | PLA filament - 1.75mm, transparant | https://www.amazon.nl/dp/B07Q1PGH4B |
 
 ### What it costs to dream
-In order to generate dreams, this application uses OpenAI and LumaLabs' APIs. The approximate costs are as follows (last updated May 2025):
+In order to generate dreams, this application uses Google Cloud, Gemini, and LumaLabs' APIs. The approximate costs are as follows (last updated May 2025):
 
-- OpenAI text-to-speech and video prompt generation: < $ 0.01 per dream - [OpenAI Pricing](https://openai.com/api/pricing)
+- Google Cloud Speech-to-Text and Gemini prompt generation: varies by recording length and model - [Google Cloud Speech-to-Text Pricing](https://cloud.google.com/speech-to-text/pricing) / [Gemini API Pricing](https://ai.google.dev/gemini-api/docs/pricing)
 - LumaLabs dream generation (using 540p, 21:9, 5 seconds, ray-flash-2): $ 0.14 per dream - [LumaLabs Pricing](https://lumalabs.ai/api/pricing)
 
 <br />
@@ -149,10 +149,10 @@ You now need to find the IP address that your local network has assigned to the 
 
 #### 💻️ <u>On your computer (in a web browser)</u>
 
-- Generate an API key for OpenAI:
-   - Login / sign up to [OpenAI](https://platform.openai.com/api-keys) and create a secret / API key
-   - Copy the value and paste it to a text file temporarily as you will need it shortly
-   - Add a few dollars of credits to your account (~$5 suggested)
+- Generate Google credentials:
+   - Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey)
+   - Create a Google Cloud project with Speech-to-Text enabled
+   - Create a service account JSON key and keep it outside of Git; the default local path is `secrets/google-service-account.json`
 - Generate an API key for LumaLabs:
    - Login / sign up to [LumaLabs](https://lumalabs.ai/api/dashboard) and create a secret / API key
    - Copy the value and paste it to a text file temporarily as you will need it shortly
@@ -264,7 +264,7 @@ git clone <repo_url>
 cd dream-recorder
 cp ./.env.example ./.env
 cp ./config.example.json ./config.json
-# Add your API keys using vim, nano or any text editor you're compfortable with
+# Add your API keys and Google Cloud credential path using vim, nano or any text editor you're compfortable with
 vim .env
 docker compose -f docker-compose.dev.yml build
 docker compose -f docker-compose.dev.yml up -d
