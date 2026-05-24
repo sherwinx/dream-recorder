@@ -520,5 +520,47 @@
         "description": "X11 DISPLAY value used when running screen blank/wake commands.",
         "default": ":0",
         "type": "string"
+    },
+    {
+        "name": "DAYONE_SYNC_ENABLED",
+        "category": "Day One",
+        "description": "Whether to upload raw dream transcripts to the Day One sync relay.",
+        "default": false,
+        "type": "boolean"
+    },
+    {
+        "name": "DAYONE_RELAY_URL",
+        "category": "Day One",
+        "description": "Cloudflare Worker base URL for Day One sync jobs.",
+        "default": "",
+        "type": "string"
+    },
+    {
+        "name": "DAYONE_RELAY_TIMEOUT_SECONDS",
+        "category": "Day One",
+        "description": "Timeout for uploading Day One sync jobs to the relay.",
+        "default": 10,
+        "type": "integer"
+    },
+    {
+        "name": "DAYONE_DEVICE_ID",
+        "category": "Day One",
+        "description": "Stable Dream Recorder device identifier used in sync idempotency keys.",
+        "default": "dream-recorder-pi",
+        "type": "string"
+    },
+    {
+        "name": "DAYONE_JOURNAL_NAME",
+        "category": "Day One",
+        "description": "Day One journal name used by the Mac sync worker.",
+        "default": "每日一记",
+        "type": "string"
+    },
+    {
+        "name": "DAYONE_SYNC_LIMIT",
+        "category": "Day One",
+        "description": "Default maximum number of cloud backlog jobs processed by the Mac worker per run.",
+        "default": 50,
+        "type": "integer"
     }
 ]

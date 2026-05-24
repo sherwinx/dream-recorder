@@ -1,0 +1,8 @@
+name = "dream-recorder-dayone-sync"
+main = "src/index.mjs"
+compatibility_date = "2026-05-24"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dream-recorder-dayone-sync"
+database_id = "7483aa9a-c2c1-4fa0-9ab8-93457b646a7a"

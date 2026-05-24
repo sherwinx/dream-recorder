@@ -69,5 +69,11 @@
   "SCREEN_SLEEP_BLANK_COMMAND": "wlr-randr --output HDMI-A-1 --off",
   "SCREEN_SLEEP_WAKE_COMMAND": "wlr-randr --output HDMI-A-1 --on --mode 400x1280@59.506001Hz --transform 270 --scale 1",
   "SCREEN_SLEEP_DISPLAY": ":0",
-  "GEMINI_THINKING_BUDGET": -1
+  "GEMINI_THINKING_BUDGET": -1,
+  "DAYONE_SYNC_ENABLED": false,
+  "DAYONE_RELAY_URL": "",
+  "DAYONE_RELAY_TIMEOUT_SECONDS": 10,
+  "DAYONE_DEVICE_ID": "dream-recorder-pi",
+  "DAYONE_JOURNAL_NAME": "每日一记",
+  "DAYONE_SYNC_LIMIT": 50
 }

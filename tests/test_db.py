@@ -1,6 +1,7 @@
 import pytest
 import tempfile
 import os
+from datetime import datetime
 from functions.dream_db import DreamDB, DreamData
 
 def test_get_all_dreams(mock_dream_db):
@@ -120,3 +121,44 @@ def test_update_dream_outer_exception(dream_db, caplog):
         with pytest.raises(RuntimeError):
             dream_db.update_dream(dream_id, BadUpdates())
     assert "Error updating dream" in caplog.text 
+
+
+def test_save_dream_transcript_creates_dayone_outbox_job(dream_db, monkeypatch):
+    monkeypatch.setattr(
+        'functions.dream_db.get_config',
+        lambda: {'DAYONE_DEVICE_ID': 'dreamer-test'},
+    )
+
+    result = dream_db.save_dream_transcript(
+        'I dreamed about a red train.',
+        audio_filename='recording.wav',
+        recorded_at=datetime(2026, 5, 20, 7, 42),
+    )
+
+    assert result['dream_local_date'] == '2026-05-20'
+    assert result['dream_local_time'] == '07:42'
+    assert result['idempotency_key'] == f"dreamer-test:{result['transcript_id']}"
+
+    jobs = dream_db.get_dayone_sync_jobs(statuses=('pending',))
+    assert len(jobs) == 1
+    assert jobs[0]['id'] == result['job_id']
+    assert jobs[0]['transcript'] == 'I dreamed about a red train.'
+    assert jobs[0]['audio_filename'] == 'recording.wav'
+
+
+def test_mark_dayone_sync_submitted_and_failed(dream_db, monkeypatch):
+    monkeypatch.setattr(
+        'functions.dream_db.get_config',
+        lambda: {'DAYONE_DEVICE_ID': 'dreamer-test'},
+    )
+    result = dream_db.save_dream_transcript('dream', recorded_at=datetime(2026, 5, 20, 7, 42))
+
+    assert dream_db.mark_dayone_sync_submitted(result['job_id'], relay_job_id='cloud-1')
+    assert dream_db.get_dayone_sync_jobs(statuses=('pending',)) == []
+    submitted = dream_db.get_dayone_sync_jobs(statuses=('submitted',))
+    assert submitted[0]['relay_job_id'] == 'cloud-1'
+
+    assert dream_db.mark_dayone_sync_failed(result['job_id'], 'network down')
+    pending = dream_db.get_dayone_sync_jobs(statuses=('pending',))
+    assert pending[0]['attempts'] == 1
+    assert pending[0]['last_error'] == 'network down'

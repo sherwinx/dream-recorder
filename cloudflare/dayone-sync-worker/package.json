@@ -1,0 +1,9 @@
+{
+  "type": "module",
+  "scripts": {
+    "check": "node --input-type=module --check < src/index.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

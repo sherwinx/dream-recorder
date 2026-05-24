@@ -1,0 +1,12 @@
+name = "dream-recorder-dayone-sync"
+main = "src/index.mjs"
+compatibility_date = "2026-05-24"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dream-recorder-dayone-sync"
+database_id = "replace-with-cloudflare-d1-database-id"
+
+# Configure secrets with:
+# wrangler secret put PI_SUBMIT_TOKEN
+# wrangler secret put MAC_WORKER_TOKEN

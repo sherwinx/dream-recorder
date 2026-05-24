@@ -69,6 +69,8 @@ def test_process_audio_success(monkeypatch, mock_config, mock_logger):
     monkeypatch.setattr(audio, 'generate_video', lambda *a, **k: ('video.mp4', 'thumb.png'))
     # Patch dream_db
     fake_db = mock.Mock()
+    fake_db.save_dream_transcript.return_value = {'transcript_id': 7}
+    fake_db.save_dream.return_value = 9
     # Patch socketio
     fake_socketio = mock.Mock()
     recording_state = {}
@@ -82,7 +84,26 @@ def test_process_audio_success(monkeypatch, mock_config, mock_logger):
     fake_socketio.emit.assert_any_call('video_prompt_update', {'text': 'video prompt'}, room='sid')
     fake_socketio.emit.assert_any_call('video_ready', {'url': recording_state['video_url']}, room='sid')
     fake_db.save_dream.assert_called()
+    fake_db.save_dream_transcript.assert_called_once_with('hello world', audio_filename='file.wav')
+    fake_db.link_transcript_to_dream.assert_called_once_with(7, 9)
     mock_logger.info.assert_called()
+
+def test_process_audio_saves_transcript_before_video_generation_failure(monkeypatch, mock_config, mock_logger):
+    monkeypatch.setattr(audio, 'save_wav_file', lambda *a, **k: 'file.wav')
+    monkeypatch.setattr(audio, 'transcribe_audio', lambda *a, **k: 'hello world')
+    monkeypatch.setattr(audio, 'generate_video_prompt', lambda *a, **k: 'video prompt')
+    monkeypatch.setattr(audio, 'generate_video', lambda *a, **k: (_ for _ in ()).throw(Exception('video fail')))
+    fake_db = mock.Mock()
+    fake_db.save_dream_transcript.return_value = {'transcript_id': 7}
+    fake_socketio = mock.Mock()
+    recording_state = {}
+
+    audio.process_audio('sid', fake_socketio, fake_db, recording_state, [b'audio'], logger=mock_logger)
+
+    assert recording_state['status'] == 'error'
+    fake_db.save_dream_transcript.assert_called_once_with('hello world', audio_filename='file.wav')
+    fake_db.save_dream.assert_not_called()
+    fake_db.link_transcript_to_dream.assert_not_called()
 
 def test_process_audio_error(monkeypatch, mock_config, mock_logger):
     # Patch save_wav_file to raise

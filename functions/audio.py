@@ -9,6 +9,7 @@ import ffmpeg
 from datetime import datetime
 from functions.video import generate_video
 from functions.config_loader import get_config
+from functions.dayone_sync import submit_pending_dayone_sync_jobs
 
 
 def create_wav_file(audio_buffer):
@@ -246,6 +247,16 @@ def process_audio(sid, socketio, dream_db, recording_state, audio_chunks, logger
 
         recording_state['transcription'] = transcription_text
         _emit(socketio, sid, 'transcription_update', {'text': transcription_text})
+        transcript_record = None
+        try:
+            transcript_record = dream_db.save_dream_transcript(
+                transcription_text,
+                audio_filename=wav_filename,
+            )
+            submit_pending_dayone_sync_jobs(dream_db, config=get_config(), logger=logger)
+        except Exception as e:
+            if logger:
+                logger.error(f"Error saving or submitting Day One sync job: {str(e)}")
 
         luma_extend = str(get_config()['LUMA_EXTEND']).lower() in ('1', 'true', 'yes')
         video_prompt = generate_video_prompt(
@@ -276,7 +287,13 @@ def process_audio(sid, socketio, dream_db, recording_state, audio_chunks, logger
             thumb_filename=thumb_filename,
             status='completed',
         )
-        dream_db.save_dream(dream_data.model_dump())
+        dream_id = dream_db.save_dream(dream_data.model_dump())
+        if transcript_record:
+            try:
+                dream_db.link_transcript_to_dream(transcript_record['transcript_id'], dream_id)
+            except Exception as e:
+                if logger:
+                    logger.error(f"Error linking transcript to dream {dream_id}: {str(e)}")
 
         recording_state['status'] = 'complete'
         recording_state['video_url'] = f"/media/video/{video_filename}"

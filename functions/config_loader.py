@@ -13,6 +13,8 @@ def load_config():
         "GOOGLE_CLOUD_PROJECT": os.getenv("GOOGLE_CLOUD_PROJECT"),
         "GOOGLE_APPLICATION_CREDENTIALS": os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
         "LUMALABS_API_KEY": os.getenv("LUMALABS_API_KEY"),
+        "DAYONE_RELAY_TOKEN": os.getenv("DAYONE_RELAY_TOKEN"),
+        "DAYONE_MAC_TOKEN": os.getenv("DAYONE_MAC_TOKEN"),
     }
 
     # Determine which config to load

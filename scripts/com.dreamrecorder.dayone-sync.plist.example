@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.dreamrecorder.dayone-sync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/Users/spaceylamb/Desktop/vibe_coding/dreamrecorder/dream-recorder/scripts/dayone_worker.py</string>
+    <string>sync-cloud-pending</string>
+    <string>--relay-url</string>
+    <string>https://replace-with-worker-url</string>
+    <string>--mac-token</string>
+    <string>replace-with-mac-worker-token</string>
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>12</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/dream-recorder-dayone-sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/dream-recorder-dayone-sync.err</string>
+</dict>
+</plist>
