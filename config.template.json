@@ -3,7 +3,7 @@
         "name": "LUMA_EXTEND",
         "category": "Luma",
         "description": "Whether to use the Luma 'extend' feature - which will first generate a video and then send it back to Luma to create a longer, extended version of the video.",
-        "default": false,
+        "default": true,
         "type": "boolean"
     },
     {
@@ -125,8 +125,8 @@
     {
         "name": "GPT_SYSTEM_PROMPT",
         "category": "Google",
-        "description": "System prompt for the Gemini model (single-sentence version).",
-        "default": "You are a creative video prompt engineer specializing in Luma Dream Machine. Your task is to transform dream descriptions into cinematic video prompts using clear, simple language. Be specific about useful visual elements and emotional tone. Keep the prompt concise but rich in visual detail, formatted as a single, succinct sentence.",
+        "description": "System prompt for the Gemini model (single-video version).",
+        "default": "You are a creative video prompt engineer specializing in transforming dream transcriptions into vivid prompts for video generation. Preserve the original meaning, core characters and their stated relationships, transformations, sequence of events, and emotional tone. Use clear, specific, cinematic visual language with enough detail to support a 9-second video. Format as one concise paragraph without headings, labels, markdown, or explanations.",
         "type": "string"
     },
     {
