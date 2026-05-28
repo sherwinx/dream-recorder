@@ -1,9 +1,37 @@
 [
     {
+        "name": "VIDEO_PROVIDER",
+        "category": "Video",
+        "description": "Video generation provider.",
+        "default": "seedance",
+        "type": "string",
+        "options": [
+            "seedance",
+            "luma"
+        ]
+    },
+    {
+        "name": "VIDEO_FALLBACK_PROVIDER",
+        "category": "Video",
+        "description": "Fallback video generation provider to use when Seedance fails.",
+        "default": "luma",
+        "type": "string",
+        "options": [
+            "luma"
+        ]
+    },
+    {
+        "name": "VIDEO_FALLBACK_LUMA_EXTEND",
+        "category": "Video",
+        "description": "Whether Luma fallback should use the Luma extend flow.",
+        "default": true,
+        "type": "boolean"
+    },
+    {
         "name": "LUMA_EXTEND",
         "category": "Luma",
         "description": "Whether to use the Luma 'extend' feature - which will first generate a video and then send it back to Luma to create a longer, extended version of the video.",
-        "default": true,
+        "default": false,
         "type": "boolean"
     },
     {
@@ -53,6 +81,65 @@
         "name": "LUMA_MAX_POLL_ATTEMPTS",
         "category": "Luma",
         "description": "Maximum number of polling attempts for Luma video generation before giving up.",
+        "default": 100,
+        "type": "integer"
+    },
+    {
+        "name": "SEEDANCE_MODEL",
+        "category": "Seedance",
+        "description": "BytePlus ModelArk Seedance model to use for video generation.",
+        "default": "dreamina-seedance-2-0-fast-260128",
+        "type": "string",
+        "options": [
+            "dreamina-seedance-2-0-fast-260128",
+            "dreamina-seedance-2-0-260128"
+        ]
+    },
+    {
+        "name": "SEEDANCE_DURATION",
+        "category": "Seedance",
+        "description": "Duration of generated Seedance videos in seconds.",
+        "default": 12,
+        "type": "integer"
+    },
+    {
+        "name": "SEEDANCE_RESOLUTION",
+        "category": "Seedance",
+        "description": "Output Seedance video resolution.",
+        "default": "480p",
+        "type": "string",
+        "options": [
+            "480p",
+            "720p"
+        ]
+    },
+    {
+        "name": "SEEDANCE_RATIO",
+        "category": "Seedance",
+        "description": "Output Seedance video aspect ratio.",
+        "default": "21:9",
+        "type": "string",
+        "options": [
+            "21:9",
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "adaptive"
+        ]
+    },
+    {
+        "name": "SEEDANCE_POLL_INTERVAL",
+        "category": "Seedance",
+        "description": "Seconds between polling Seedance for video generation status.",
+        "default": 5,
+        "type": "integer"
+    },
+    {
+        "name": "SEEDANCE_MAX_POLL_ATTEMPTS",
+        "category": "Seedance",
+        "description": "Maximum number of polling attempts for Seedance video generation before giving up.",
         "default": 100,
         "type": "integer"
     },

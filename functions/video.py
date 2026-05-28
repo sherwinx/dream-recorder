@@ -79,8 +79,121 @@ def process_thumbnail(video_path, logger=None):
             logger.error(f"Error generating thumbnail: {str(e)}")
         raise
 
-def generate_video(prompt, filename=None, luma_extend=False, logger=None, config=None):
+def _download_and_process_video(video_url, filename, logger=None):
+    """Download the generated video and run the shared post-processing steps."""
+    video_response = requests.get(video_url, stream=True)
+    video_response.raise_for_status()
+    if filename is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"generated_{timestamp}.mp4"
+    os.makedirs(get_config()['VIDEOS_DIR'], exist_ok=True)
+    video_path = os.path.join(get_config()['VIDEOS_DIR'], filename)
+    with open(video_path, 'wb') as f:
+        for chunk in video_response.iter_content(chunk_size=8192):
+            f.write(chunk)
+    if logger:
+        logger.info(f"Saved video to {video_path}")
+    processed_video_path = process_video(video_path, logger)
+    if logger:
+        logger.info(f"Processed video saved to {processed_video_path}")
+    thumb_filename = process_thumbnail(processed_video_path, logger)
+    return filename, thumb_filename
+
+def _extract_seedance_video_url(status_data):
+    """Extract a video URL from known Seedance/ModelArk response shapes."""
+    content = status_data.get('content')
+    if isinstance(content, dict):
+        video_url = content.get('video_url') or content.get('url')
+        if video_url:
+            return video_url
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict):
+                video_url = item.get('video_url') or item.get('url')
+                if video_url:
+                    return video_url
+    output = status_data.get('output')
+    if isinstance(output, dict):
+        video_url = output.get('video_url') or output.get('url')
+        if video_url:
+            return video_url
+    return status_data.get('video_url')
+
+def _generate_seedance_video(prompt, filename=None, logger=None, config=None):
+    """Generate a video using BytePlus ModelArk Seedance."""
+    cfg = config or get_config()
+    api_key = cfg.get('BYTEPLUS_ARK_KEY') or cfg.get('ARK_API_KEY')
+    if not api_key:
+        raise ValueError("BYTEPLUS_ARK_KEY or ARK_API_KEY is required for Seedance video generation")
+
+    response = requests.post(
+        cfg['SEEDANCE_GENERATIONS_ENDPOINT'],
+        headers={
+            'accept': 'application/json',
+            'authorization': f"Bearer {api_key}",
+            'content-type': 'application/json'
+        },
+        json={
+            'model': cfg['SEEDANCE_MODEL'],
+            'content': [
+                {
+                    'type': 'text',
+                    'text': prompt
+                }
+            ],
+            'resolution': cfg['SEEDANCE_RESOLUTION'],
+            'duration': int(cfg['SEEDANCE_DURATION']),
+            'ratio': cfg['SEEDANCE_RATIO'],
+        }
+    )
+    if response.status_code not in [200, 201]:
+        raise Exception(f"Seedance API error: {response.text}")
+    response_data = response.json()
+    task_id = response_data.get('id') or response_data.get('task_id')
+    if not task_id:
+        raise Exception("Failed to get Seedance task ID from response")
+    if logger:
+        logger.info(f"Started Seedance video generation with ID: {task_id}")
+
+    max_attempts = int(cfg['SEEDANCE_MAX_POLL_ATTEMPTS'])
+    poll_interval = float(cfg['SEEDANCE_POLL_INTERVAL'])
+    status_url = f"{cfg['SEEDANCE_GENERATIONS_ENDPOINT'].rstrip('/')}/{task_id}"
+    for attempt in range(max_attempts):
+        status_response = requests.get(
+            status_url,
+            headers={
+                'accept': 'application/json',
+                'authorization': f"Bearer {api_key}"
+            }
+        )
+        if status_response.status_code not in [200, 201]:
+            if logger:
+                logger.error(f"Seedance status check failed with code {status_response.status_code}: {status_response.text}")
+            time.sleep(poll_interval)
+            continue
+        status_data = status_response.json()
+        if attempt == 0 or attempt % 10 == 0:
+            if logger:
+                logger.info(f"Seedance status response: {status_data}")
+        status = str(status_data.get('status') or status_data.get('state') or '').lower()
+        if logger:
+            logger.info(f"Seedance generation status: {status} (attempt {attempt+1}/{max_attempts})")
+        if status in ['succeeded', 'completed']:
+            video_url = _extract_seedance_video_url(status_data)
+            if not video_url:
+                raise Exception("Video URL not found in completed Seedance response")
+            if logger:
+                logger.info(f"Seedance video generation completed: {video_url}")
+            return _download_and_process_video(video_url, filename, logger)
+        if status in ['failed', 'error', 'canceled', 'cancelled']:
+            error_msg = status_data.get('failure_reason') or status_data.get('error') or status_data.get('message') or "Unknown error"
+            raise Exception(f"Seedance video generation failed: {error_msg}")
+        time.sleep(poll_interval)
+    raise Exception(f"Timed out waiting for Seedance video generation after {max_attempts} attempts")
+
+def _generate_luma_video(prompt, filename=None, luma_extend=False, logger=None, config=None):
     """Generate a video using Luma Labs API, with optional extension if LUMA_EXTEND is set."""
+    cfg = config or get_config()
     try:
         # If luma_extend, split the prompt into two parts
         if luma_extend and '*****' in prompt:
@@ -90,18 +203,18 @@ def generate_video(prompt, filename=None, luma_extend=False, logger=None, config
             extension_prompt = 'Continue on with this video'  # fallback
         # Step 1: Create the initial generation request
         response = requests.post(
-            get_config()['LUMA_GENERATIONS_ENDPOINT'],
+            cfg['LUMA_GENERATIONS_ENDPOINT'],
             headers={
                 'accept': 'application/json',
-                'authorization': f"Bearer {get_config()['LUMALABS_API_KEY']}",
+                'authorization': f"Bearer {cfg['LUMALABS_API_KEY']}",
                 'content-type': 'application/json'
             },
             json={
                 'prompt': initial_prompt,
-                'model': get_config()['LUMA_MODEL'],
-                'resolution': get_config()['LUMA_RESOLUTION'],
-                'duration': get_config()['LUMA_DURATION'],
-                "aspect_ratio": get_config()['LUMA_ASPECT_RATIO'],
+                'model': cfg['LUMA_MODEL'],
+                'resolution': cfg['LUMA_RESOLUTION'],
+                'duration': cfg['LUMA_DURATION'],
+                "aspect_ratio": cfg['LUMA_ASPECT_RATIO'],
             }
         )
         if response.status_code not in [200, 201]:
@@ -116,14 +229,14 @@ def generate_video(prompt, filename=None, luma_extend=False, logger=None, config
             logger.info(f"Started video generation with ID: {generation_id}")
         def poll_for_completion(generation_id):
             """Poll the Luma API for video generation completion."""
-            max_attempts = int(get_config()['LUMA_MAX_POLL_ATTEMPTS'])
-            poll_interval = float(get_config()['LUMA_POLL_INTERVAL'])
+            max_attempts = int(cfg['LUMA_MAX_POLL_ATTEMPTS'])
+            poll_interval = float(cfg['LUMA_POLL_INTERVAL'])
             for attempt in range(max_attempts):
                 status_response = requests.get(
-                    f"{get_config()['LUMA_API_URL']}/generations/{generation_id}",
+                    f"{cfg['LUMA_API_URL']}/generations/{generation_id}",
                     headers={
                         'accept': 'application/json',
-                        'authorization': f"Bearer {get_config()['LUMALABS_API_KEY']}"
+                        'authorization': f"Bearer {cfg['LUMALABS_API_KEY']}"
                     }
                 )
                 if status_response.status_code not in [200, 201]:
@@ -165,17 +278,17 @@ def generate_video(prompt, filename=None, luma_extend=False, logger=None, config
                 logger.info("LUMA_EXTEND is set. Requesting video extension.")
             _ = poll_for_completion(generation_id)  # Wait for completion
             extend_response = requests.post(
-                get_config()['LUMA_GENERATIONS_ENDPOINT'],
+                cfg['LUMA_GENERATIONS_ENDPOINT'],
                 headers={
                     'accept': 'application/json',
-                    'authorization': f"Bearer {get_config()['LUMALABS_API_KEY']}",
+                    'authorization': f"Bearer {cfg['LUMALABS_API_KEY']}",
                     'content-type': 'application/json'
                 },
                 json={
-                    'model': get_config()['LUMA_MODEL'],
-                    'resolution': get_config()['LUMA_RESOLUTION'],
-                    'duration': get_config()['LUMA_DURATION'],
-                    "aspect_ratio": get_config()['LUMA_ASPECT_RATIO'],
+                    'model': cfg['LUMA_MODEL'],
+                    'resolution': cfg['LUMA_RESOLUTION'],
+                    'duration': cfg['LUMA_DURATION'],
+                    "aspect_ratio": cfg['LUMA_ASPECT_RATIO'],
                     'prompt': extension_prompt,
                     'keyframes': {
                         'frame0': {
@@ -198,26 +311,42 @@ def generate_video(prompt, filename=None, luma_extend=False, logger=None, config
             video_url = poll_for_completion(extend_id)
         else:
             video_url = poll_for_completion(generation_id)
-        # Download the generated video
-        video_response = requests.get(video_url, stream=True)
-        video_response.raise_for_status()
-        if filename is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"generated_{timestamp}.mp4"
-        os.makedirs(get_config()['VIDEOS_DIR'], exist_ok=True)
-        video_path = os.path.join(get_config()['VIDEOS_DIR'], filename)
-        with open(video_path, 'wb') as f:
-            for chunk in video_response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        if logger:
-            logger.info(f"Saved video to {video_path}")
-        # Post-process the video and generate a thumbnail
-        processed_video_path = process_video(video_path, logger)
-        if logger:
-            logger.info(f"Processed video saved to {processed_video_path}")
-        thumb_filename = process_thumbnail(processed_video_path, logger)
-        return filename, thumb_filename
+        return _download_and_process_video(video_url, filename, logger)
     except Exception as e:
         if logger:
             logger.error(f"Error generating video: {str(e)}")
         raise
+
+def generate_video(prompt, filename=None, luma_extend=False, logger=None, config=None):
+    """Generate a video using the configured provider."""
+    cfg = config or get_config()
+    provider = str(cfg.get('VIDEO_PROVIDER', 'luma')).lower()
+    if provider == 'seedance':
+        try:
+            if luma_extend and logger:
+                logger.info("Seedance provider does not support Luma extend; generating a single video.")
+            return _generate_seedance_video(prompt, filename=filename, logger=logger, config=cfg)
+        except Exception as e:
+            seedance_error = e
+            if logger:
+                logger.error(f"Seedance video generation failed; falling back to Luma: {str(e)}")
+            fallback_provider = str(cfg.get('VIDEO_FALLBACK_PROVIDER', 'luma')).lower()
+            if fallback_provider != 'luma':
+                raise
+            fallback_extend = str(cfg.get('VIDEO_FALLBACK_LUMA_EXTEND', True)).lower() in ('1', 'true', 'yes')
+            try:
+                return _generate_luma_video(
+                    prompt,
+                    filename=filename,
+                    luma_extend=fallback_extend,
+                    logger=logger,
+                    config=cfg
+                )
+            except Exception as fallback_error:
+                raise Exception(
+                    f"Seedance generation failed ({seedance_error}); "
+                    f"Luma fallback failed ({fallback_error})"
+                ) from fallback_error
+    if provider == 'luma':
+        return _generate_luma_video(prompt, filename=filename, luma_extend=luma_extend, logger=logger, config=cfg)
+    raise ValueError(f"Unsupported VIDEO_PROVIDER: {provider}")
