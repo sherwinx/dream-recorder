@@ -199,6 +199,11 @@ class ScreenSleepController:
         self.current_app_state = "clock"
         self.is_sleeping = False
         self.solar_schedule = SolarScheduleManager(config, logger=logger, requests_module=requests_module)
+        self._log_info(
+            "Screen sleep controller initialized: "
+            f"enabled={self.enabled}, mode={self.mode}, timeout={self.timeout_seconds}s, "
+            f"poll_interval={self.state_poll_interval}s, flask_url={self.flask_url}"
+        )
 
     def evaluate(self):
         if not self.enabled or self.is_sleeping:
@@ -217,10 +222,14 @@ class ScreenSleepController:
         if self.mode == "night_only" and not self.solar_schedule.is_night():
             return
 
+        self._log_info(
+            "Screen sleep timeout reached while app is clock; blanking display"
+        )
         self.blank_screen()
 
     def handle_touch(self, send_original_event):
         if self.is_sleeping:
+            self._log_info("Touch detected while screen is sleeping; attempting wake")
             self.wake_screen()
             return
 
@@ -228,15 +237,19 @@ class ScreenSleepController:
         send_original_event()
 
     def blank_screen(self):
+        self._log_info("Running screen blank command")
         if self._run_screen_command(sleep_config_value(self.config, "SCREEN_SLEEP_BLANK_COMMAND")):
             self.is_sleeping = True
+            self._log_info("Screen blank command succeeded; notifying app")
             self._post_endpoint(sleep_config_value(self.config, "GPIO_SCREEN_SLEEP_ENDPOINT"))
 
     def wake_screen(self):
+        self._log_info("Running screen wake command")
         if self._run_screen_command(sleep_config_value(self.config, "SCREEN_SLEEP_WAKE_COMMAND")):
             self.is_sleeping = False
             self.last_interaction_time = self.time.time()
             self.current_app_state = "clock"
+            self._log_info("Screen wake command succeeded; notifying app")
             self._post_endpoint(sleep_config_value(self.config, "GPIO_SCREEN_WAKE_ENDPOINT"))
 
     def _refresh_app_state(self, now):
@@ -250,14 +263,16 @@ class ScreenSleepController:
             )
             response.raise_for_status()
             state = response.json().get("state")
-            if state:
+            if state and state != self.current_app_state:
+                self._log_info(f"App device state changed: {self.current_app_state} -> {state}")
                 self.current_app_state = state
         except Exception as exc:
             self._log_warning(f"Could not read device state: {exc}")
 
     def _post_endpoint(self, endpoint):
         try:
-            self.requests.post(self._url(endpoint), timeout=2)
+            response = self.requests.post(self._url(endpoint), timeout=2)
+            self._log_info(f"Notified Flask endpoint {endpoint}: {response.status_code}")
         except Exception as exc:
             self._log_warning(f"Could not notify Flask endpoint {endpoint}: {exc}")
 
@@ -266,6 +281,7 @@ class ScreenSleepController:
             env = os.environ.copy()
             env.setdefault("DISPLAY", sleep_config_value(self.config, "SCREEN_SLEEP_DISPLAY"))
             subprocess.run(shlex.split(command), check=True, env=env)
+            self._log_info(f"Screen command succeeded: {command}")
             return True
         except Exception as exc:
             self._log_error(f"Screen command failed ({command}): {exc}")
@@ -273,6 +289,10 @@ class ScreenSleepController:
 
     def _url(self, endpoint):
         return f"{self.flask_url}{endpoint}"
+
+    def _log_info(self, message):
+        if self.logger:
+            self.logger.info(message)
 
     def _log_warning(self, message):
         if self.logger:

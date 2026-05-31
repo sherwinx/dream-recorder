@@ -52,6 +52,7 @@ class GPIOController:
         self.press_start_time = 0
         self.last_tap_time = 0
         self.tap_count = 0
+        self.last_heartbeat_time = 0
         
         # Import GPIO here for better error handling
         import RPi.GPIO as GPIO
@@ -61,6 +62,8 @@ class GPIOController:
         self.GPIO.setmode(self.GPIO.BCM)
         self.GPIO.setup(self.pin, self.GPIO.IN, pull_up_down=self.GPIO.PUD_DOWN)
         logger.info(f"GPIO Controller initialized with touch sensor on pin {self.pin}")
+        initial_state = self.GPIO.input(self.pin) == self.GPIO.HIGH
+        logger.info(f"GPIO initial state on pin {self.pin}: {'HIGH' if initial_state else 'LOW'}")
     
     def register_callback(self, pattern, callback_func):
         """
@@ -84,7 +87,12 @@ class GPIOController:
         self.single_tap_max = single_tap_max or float(get_config()['GPIO_SINGLE_TAP_MAX_DURATION'])
         self.double_tap_max_interval = double_tap_max_interval or float(get_config()['GPIO_DOUBLE_TAP_MAX_INTERVAL'])
         self.is_running = True
-        logger.info("Starting GPIO monitoring loop")
+        logger.info(
+            "Starting GPIO monitoring loop "
+            f"(single_tap_max={self.single_tap_max}s, "
+            f"double_tap_max_interval={self.double_tap_max_interval}s, "
+            f"debounce_time={self.debounce_time}s, sampling_rate={self.sampling_rate}s)"
+        )
         
         try:
             while self.is_running:
@@ -98,27 +106,42 @@ class GPIOController:
 
                         if current_state:  # Button pressed
                             self.press_start_time = current_time
+                            logger.info(f"GPIO pin {self.pin} changed to HIGH (touch pressed)")
                         else:  # Button released
                             press_duration = current_time - self.press_start_time
+                            logger.info(
+                                f"GPIO pin {self.pin} changed to LOW "
+                                f"(touch released after {press_duration:.3f}s)"
+                            )
                             
                             if press_duration <= self.single_tap_max:
                                 self.tap_count += 1
+                                logger.info(f"Registered tap candidate; tap_count={self.tap_count}")
                                 if self.tap_count == 1:
                                     self.last_tap_time = current_time
                                 elif self.tap_count == 2:
                                     if current_time - self.last_tap_time <= self.double_tap_max_interval:
                                         if TouchPattern.DOUBLE_TAP in self.callbacks:
+                                            logger.info("Double tap pattern detected")
                                             self.callbacks[TouchPattern.DOUBLE_TAP]()
                                     self.tap_count = 0
 
                 # Check for single tap timeout
                 if self.tap_count == 1 and current_time - self.last_tap_time > self.double_tap_max_interval:
                     if TouchPattern.SINGLE_TAP in self.callbacks:
+                        logger.info("Single tap pattern detected")
                         self.callbacks[TouchPattern.SINGLE_TAP]()
                     self.tap_count = 0
 
                 if idle_callback:
                     idle_callback()
+
+                if current_time - self.last_heartbeat_time >= 300:
+                    self.last_heartbeat_time = current_time
+                    logger.info(
+                        f"GPIO heartbeat: pin {self.pin} is "
+                        f"{'HIGH' if current_state else 'LOW'}, tap_count={self.tap_count}"
+                    )
                 
                 # Sleep for a bit to reduce CPU usage
                 time.sleep(self.sampling_rate)

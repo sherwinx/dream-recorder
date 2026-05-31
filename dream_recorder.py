@@ -257,8 +257,11 @@ def api_device_state():
             state = data.get('state')
             if not state:
                 return jsonify({'status': 'error', 'message': 'state is required'}), 400
+            previous_state = device_state.get('state')
             device_state['state'] = state
             device_state['updated_at'] = datetime.now(timezone.utc).isoformat()
+            if logger:
+                logger.info(f"Device state updated via API: {previous_state} -> {state}")
         return jsonify(device_state)
     except Exception as e:
         if logger:
@@ -269,6 +272,8 @@ def api_device_state():
 def api_screen_sleep():
     """Notify browser clients that the host display was blanked."""
     try:
+        if logger:
+            logger.info("Screen sleep notification received from host service")
         device_state['state'] = 'sleep'
         device_state['updated_at'] = datetime.now(timezone.utc).isoformat()
         socketio.emit('device_event', {'eventType': 'sleep'})
@@ -282,6 +287,8 @@ def api_screen_sleep():
 def api_screen_wake():
     """Notify browser clients that the host display was awakened."""
     try:
+        if logger:
+            logger.info("Screen wake notification received from host service")
         device_state['state'] = 'clock'
         device_state['updated_at'] = datetime.now(timezone.utc).isoformat()
         socketio.emit('device_event', {'eventType': 'wake'})
@@ -295,6 +302,8 @@ def api_screen_wake():
 def gpio_single_tap():
     """API endpoint for single tap from GPIO controller."""
     try:
+        if logger:
+            logger.info("GPIO single tap notification received")
         # Notify all clients of a single tap event
         socketio.emit('device_event', {'eventType': 'single_tap'})
         return jsonify({'status': 'success'})
@@ -307,6 +316,8 @@ def gpio_single_tap():
 def gpio_double_tap():
     """API endpoint for double tap from GPIO controller."""
     try:
+        if logger:
+            logger.info("GPIO double tap notification received")
         # Notify all clients of a double tap event
         socketio.emit('device_event', {'eventType': 'double_tap'})
         return jsonify({'status': 'success'})
