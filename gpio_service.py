@@ -98,8 +98,15 @@ class GPIOController:
             while self.is_running:
                 current_state = self.GPIO.input(self.pin) == self.GPIO.HIGH
                 current_time = time.time()
-                
-                if current_state != self.last_state:
+
+                if self.last_state is None:
+                    self.last_state = current_state
+                    self.last_change_time = current_time
+                    logger.info(
+                        f"GPIO monitoring baseline: pin {self.pin} is "
+                        f"{'HIGH' if current_state else 'LOW'}"
+                    )
+                elif current_state != self.last_state:
                     if current_time - self.last_change_time + 1e-9 >= self.debounce_time:
                         self.last_change_time = current_time
                         self.last_state = current_state
