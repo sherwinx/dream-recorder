@@ -1,0 +1,23 @@
+from functions.plaud_import import clean_plaud_transcript, parse_plaud_datetime
+
+
+def test_parse_plaud_datetime_treats_naive_start_at_as_utc():
+    parsed = parse_plaud_datetime(
+        "2026-06-05T06:13:23",
+        config={"DEFAULT_TIMEZONE": "America/Los_Angeles"},
+    )
+    assert parsed.date().isoformat() == "2026-06-04"
+    assert parsed.strftime("%H:%M") == "23:13"
+
+
+def test_parse_plaud_datetime_converts_offset_to_default_timezone():
+    parsed = parse_plaud_datetime(
+        "2026-06-04T23:13:23-07:00",
+        config={"DEFAULT_TIMEZONE": "America/Los_Angeles"},
+    )
+    assert parsed.date().isoformat() == "2026-06-04"
+    assert parsed.strftime("%H:%M") == "23:13"
+
+
+def test_clean_plaud_transcript_ignores_unavailable_message():
+    assert clean_plaud_transcript("Transcript not available for this recording.") == ""

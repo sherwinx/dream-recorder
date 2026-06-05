@@ -87,7 +87,7 @@ def test_insert_dream_skips_duplicate_text():
     assert updated == body
 
 
-def test_insert_dream_includes_time_and_idempotency_marker():
+def test_insert_dream_includes_time_without_visible_idempotency_marker():
     updated, changed = insert_dream_into_body(
         build_daily_reflection_body(),
         "Timed dream.",
@@ -97,14 +97,34 @@ def test_insert_dream_includes_time_and_idempotency_marker():
 
     assert changed is True
     assert "07:42\nTimed dream." in updated
-    assert idempotency_marker("pi:1") in updated
+    assert idempotency_marker("pi:1") not in updated
 
 
-def test_insert_dream_skips_duplicate_idempotency_marker():
+def test_insert_dream_cleans_legacy_duplicate_idempotency_marker():
     body = build_daily_reflection_body(
         "Original dream.",
         dream_local_time="07:42",
         idempotency_key="pi:1",
+    )
+    body = body.replace("Original dream.", f"Original dream.\n{idempotency_marker('pi:1')}")
+
+    updated, changed = insert_dream_into_body(
+        body,
+        "Changed transcript should not duplicate.",
+        dream_local_time="07:43",
+        idempotency_key="pi:1",
+    )
+
+    assert changed is True
+    assert "Changed transcript should not duplicate." not in updated
+    assert idempotency_marker("pi:1") not in updated
+
+
+def test_insert_dream_cleans_dayone_escaped_marker_code_block():
+    body = build_daily_reflection_body()
+    body = body.replace(
+        "###### things that happened today",
+        "07:42\nTimed dream.\n\n```\n<\\!\\-\\- dream\\-recorder:pi:1 \\-\\->\n```\n\n###### things that happened today",
     )
 
     updated, changed = insert_dream_into_body(
@@ -114,8 +134,10 @@ def test_insert_dream_skips_duplicate_idempotency_marker():
         idempotency_key="pi:1",
     )
 
-    assert changed is False
-    assert updated == body
+    assert changed is True
+    assert "Changed transcript should not duplicate." not in updated
+    assert "dream-recorder:" not in updated
+    assert "```" not in updated
 
 
 def test_find_daily_reflection_prefers_templated_entry():
@@ -155,7 +177,7 @@ def test_upsert_updates_existing_daily_reflection_entry():
     assert client.updated[0]["tags"] == ["existing"]
     assert "A new dream transcript." in client.updated[0]["text"]
     assert "06:30" in client.updated[0]["text"]
-    assert idempotency_marker("pi:2") in client.updated[0]["text"]
+    assert idempotency_marker("pi:2") not in client.updated[0]["text"]
     assert client.last_get_entries["start_date"] == "2026-05-24"
     assert client.last_get_entries["end_date"] == "2026-05-25"
 
@@ -180,7 +202,7 @@ def test_upsert_creates_daily_reflection_entry_when_missing():
     assert "Daily Reflection" in client.created[0]["text"]
     assert "A brand new dream transcript." in client.created[0]["text"]
     assert "08:15" in client.created[0]["text"]
-    assert idempotency_marker("pi:3") in client.created[0]["text"]
+    assert idempotency_marker("pi:3") not in client.created[0]["text"]
 
 
 def test_sync_cloud_pending_processes_historical_jobs(monkeypatch):

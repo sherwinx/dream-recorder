@@ -649,5 +649,47 @@
         "description": "Default maximum number of cloud backlog jobs processed by the Mac worker per run.",
         "default": 50,
         "type": "integer"
+    },
+    {
+        "name": "PLAUD_IMPORT_TOKEN",
+        "category": "Plaud",
+        "description": "Optional bearer token required by the Raspberry Pi Plaud import endpoint.",
+        "default": "",
+        "type": "string"
+    },
+    {
+        "name": "PLAUD_IMPORT_DEVICE_ID",
+        "category": "Plaud",
+        "description": "Stable device/source identifier used for Plaud imports.",
+        "default": "plaud-notepin",
+        "type": "string"
+    },
+    {
+        "name": "PLAUD_PI_IMPORT_URL",
+        "category": "Plaud",
+        "description": "Dream Recorder API endpoint that receives Plaud audio, transcript, and metadata.",
+        "default": "http://dreamer.local:5000/api/import/plaud",
+        "type": "url"
+    },
+    {
+        "name": "PLAUD_IMPORT_LOOKBACK_DAYS",
+        "category": "Plaud",
+        "description": "How far back the Plaud importer should look for recordings that may have been missed.",
+        "default": 14,
+        "type": "integer"
+    },
+    {
+        "name": "PLAUD_IMPORT_OUTBOX_DIR",
+        "category": "Plaud",
+        "description": "Local Mac-side outbox directory used when the Raspberry Pi is offline.",
+        "default": "db/plaud_outbox",
+        "type": "string"
+    },
+    {
+        "name": "PLAUD_CLI_PATH",
+        "category": "Plaud",
+        "description": "Path to the Plaud CLI executable on the machine running the importer.",
+        "default": "plaud",
+        "type": "string"
     }
 ]

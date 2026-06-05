@@ -162,3 +162,54 @@ def test_mark_dayone_sync_submitted_and_failed(dream_db, monkeypatch):
     pending = dream_db.get_dayone_sync_jobs(statuses=('pending',))
     assert pending[0]['attempts'] == 1
     assert pending[0]['last_error'] == 'network down'
+
+
+def test_save_dream_transcript_reuses_external_idempotency_key(dream_db, monkeypatch):
+    monkeypatch.setattr(
+        'functions.dream_db.get_config',
+        lambda: {'DAYONE_DEVICE_ID': 'dreamer-test'},
+    )
+    first = dream_db.save_dream_transcript(
+        'first transcript',
+        recorded_at=datetime(2026, 6, 4, 6, 10),
+        idempotency_key='plaud:abc',
+    )
+    second = dream_db.save_dream_transcript(
+        'second transcript',
+        recorded_at=datetime(2026, 6, 4, 7, 10),
+        idempotency_key='plaud:abc',
+    )
+
+    assert second['transcript_id'] == first['transcript_id']
+    assert second['job_id'] == first['job_id']
+    jobs = dream_db.get_dayone_sync_jobs(statuses=('pending',))
+    assert len(jobs) == 1
+    assert jobs[0]['transcript'] == 'first transcript'
+
+    transcript = dream_db.get_dream_transcript(first['transcript_id'])
+    assert transcript['transcript'] == 'first transcript'
+
+
+def test_plaud_import_status_lifecycle(dream_db):
+    created = dream_db.create_or_update_plaud_import(
+        'plaud-1',
+        title='Morning dream',
+        started_at='2026-06-04T06:12:00-07:00',
+    )
+    assert created['plaud_recording_id'] == 'plaud-1'
+    assert created['import_status'] == 'received'
+
+    failed = dream_db.mark_plaud_import_status('plaud-1', 'failed', error='pi offline')
+    assert failed['import_status'] == 'failed'
+    assert failed['last_error'] == 'pi offline'
+
+    completed = dream_db.complete_plaud_import(
+        'plaud-1',
+        transcript_id=11,
+        dream_id=22,
+        audio_filename='plaud/plaud-1.mp3',
+        transcript_source='plaud',
+    )
+    assert completed['import_status'] == 'completed'
+    assert completed['last_error'] is None
+    assert completed['dream_id'] == 22

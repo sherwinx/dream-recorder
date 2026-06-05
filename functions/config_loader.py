@@ -20,6 +20,9 @@ def load_config():
         "BYTEPLUS_ARK_KEY": os.getenv("BYTEPLUS_ARK_KEY"),
         "DAYONE_RELAY_TOKEN": os.getenv("DAYONE_RELAY_TOKEN"),
         "DAYONE_MAC_TOKEN": os.getenv("DAYONE_MAC_TOKEN"),
+        "PLAUD_IMPORT_TOKEN": os.getenv("PLAUD_IMPORT_TOKEN"),
+        "PLAUD_CLI_PATH": os.getenv("PLAUD_CLI_PATH"),
+        "PLAUD_API_TOKEN": os.getenv("PLAUD_API_TOKEN"),
     }
 
     # Determine which config to load

@@ -86,5 +86,11 @@
   "DAYONE_RELAY_TIMEOUT_SECONDS": 10,
   "DAYONE_DEVICE_ID": "dream-recorder-pi",
   "DAYONE_JOURNAL_NAME": "每日一记",
-  "DAYONE_SYNC_LIMIT": 50
+  "DAYONE_SYNC_LIMIT": 50,
+  "PLAUD_IMPORT_TOKEN": "",
+  "PLAUD_IMPORT_DEVICE_ID": "plaud-notepin",
+  "PLAUD_PI_IMPORT_URL": "http://dreamer.local:5000/api/import/plaud",
+  "PLAUD_IMPORT_LOOKBACK_DAYS": 14,
+  "PLAUD_IMPORT_OUTBOX_DIR": "db/plaud_outbox",
+  "PLAUD_CLI_PATH": "plaud"
 }

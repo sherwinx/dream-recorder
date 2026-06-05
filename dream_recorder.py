@@ -17,6 +17,7 @@ from functions.dream_db import DreamDB
 from functions.audio import create_wav_file, process_audio
 from functions.config_loader import load_config, get_config
 from functions.screen_sleep import sleep_config_value
+from functions.plaud_import import save_plaud_audio, process_plaud_import
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, get_config()["LOG_LEVEL"]))
@@ -104,6 +105,14 @@ def init_sample_dreams_if_missing():
             print("Failed to initialize sample dreams.")
     except Exception as e:
         print(f"Exception while initializing sample dreams: {e}")
+
+
+def _require_plaud_import_token():
+    expected = get_config().get('PLAUD_IMPORT_TOKEN')
+    if not expected:
+        return True
+    header = request.headers.get('Authorization', '')
+    return header == f"Bearer {expected}"
 
 # =============================
 # SocketIO Event Handlers
@@ -360,6 +369,57 @@ def delete_dream(dream_id):
     except Exception as e:
         if logger:
             logger.error(f"Error deleting dream {dream_id}: {str(e)}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/import/plaud', methods=['POST'])
+def import_plaud_recording():
+    """Import a Plaud recording as a Dream Recorder source."""
+    try:
+        if not _require_plaud_import_token():
+            return jsonify({'success': False, 'message': 'unauthorized'}), 401
+
+        plaud_recording_id = (request.form.get('plaud_recording_id') or '').strip()
+        if not plaud_recording_id:
+            return jsonify({'success': False, 'message': 'plaud_recording_id is required'}), 400
+
+        existing = dream_db.get_plaud_import(plaud_recording_id)
+        if existing and existing.get('import_status') == 'completed':
+            return jsonify({'success': True, 'duplicate': True, 'plaud_import': existing}), 200
+
+        audio_file = request.files.get('audio_file')
+        if audio_file is None:
+            return jsonify({'success': False, 'message': 'audio_file is required'}), 400
+
+        metadata = request.form.get('metadata_json')
+        try:
+            import json
+            parsed_metadata = json.loads(metadata) if metadata else {}
+        except Exception:
+            parsed_metadata = {'raw_metadata': metadata}
+
+        audio_filename = save_plaud_audio(
+            audio_file,
+            plaud_recording_id,
+            original_filename=request.form.get('audio_filename') or audio_file.filename,
+            config=get_config(),
+        )
+        result = process_plaud_import(
+            dream_db=dream_db,
+            plaud_recording_id=plaud_recording_id,
+            audio_filename=audio_filename,
+            transcript=request.form.get('transcript'),
+            start_at=request.form.get('start_at'),
+            title=request.form.get('title'),
+            metadata=parsed_metadata,
+            logger=logger,
+            config=get_config(),
+        )
+        status_code = 200 if result.get('status') == 'duplicate' else 201
+        return jsonify({'success': True, **result}), status_code
+    except Exception as e:
+        if logger:
+            logger.error(f"Error importing Plaud recording: {str(e)}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/clock-config-path')

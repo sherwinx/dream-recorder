@@ -6,6 +6,7 @@ logs/*
 media/*
 !media/.gitkeep
 temp_scripts/
+.tools/
 templates/loading.kiosk.html
 config.json
 secrets/

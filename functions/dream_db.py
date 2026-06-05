@@ -74,6 +74,25 @@ class DreamDB:
                     FOREIGN KEY(transcript_id) REFERENCES dream_transcripts(id)
                 )
             ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS plaud_imports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    plaud_recording_id TEXT NOT NULL UNIQUE,
+                    title TEXT,
+                    started_at TEXT,
+                    audio_filename TEXT,
+                    transcript_id INTEGER,
+                    dream_id INTEGER,
+                    transcript_source TEXT,
+                    import_status TEXT NOT NULL DEFAULT 'received',
+                    last_error TEXT,
+                    raw_metadata_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(transcript_id) REFERENCES dream_transcripts(id),
+                    FOREIGN KEY(dream_id) REFERENCES dreams(id)
+                )
+            ''')
             conn.commit()
             # If the table did not exist before, initialize sample dreams
             if not table_exists:
@@ -157,18 +176,36 @@ class DreamDB:
             conn.commit()
             return cursor.lastrowid
 
-    def save_dream_transcript(self, transcript, audio_filename=None, recorded_at=None, device_id=None):
+    def save_dream_transcript(self, transcript, audio_filename=None, recorded_at=None, device_id=None, idempotency_key=None):
         """Persist a raw transcript and create a Day One sync outbox job."""
         if not transcript or not transcript.strip():
             raise ValueError("transcript is required")
 
         recorded_at = recorded_at or datetime.now()
         device_id = device_id or get_config().get('DAYONE_DEVICE_ID', 'dream-recorder')
+        idempotency_key = idempotency_key or None
         dream_local_date = recorded_at.date().isoformat()
         dream_local_time = recorded_at.strftime('%H:%M')
 
         with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
+            if idempotency_key:
+                cursor.execute('''
+                    SELECT
+                        j.id AS job_id,
+                        j.idempotency_key,
+                        t.id AS transcript_id,
+                        t.dream_local_date,
+                        t.dream_local_time
+                    FROM dayone_sync_jobs j
+                    JOIN dream_transcripts t ON t.id = j.transcript_id
+                    WHERE j.idempotency_key = ?
+                ''', (idempotency_key,))
+                existing = cursor.fetchone()
+                if existing:
+                    return self._row_to_dict(existing)
+
             cursor.execute('''
                 INSERT INTO dream_transcripts (
                     transcript, audio_filename, dream_local_date, dream_local_time
@@ -180,7 +217,8 @@ class DreamDB:
                 dream_local_time,
             ))
             transcript_id = cursor.lastrowid
-            idempotency_key = f"{device_id}:{transcript_id}"
+            if not idempotency_key:
+                idempotency_key = f"{device_id}:{transcript_id}"
             cursor.execute('''
                 INSERT INTO dayone_sync_jobs (
                     transcript_id, idempotency_key, sync_status
@@ -197,6 +235,86 @@ class DreamDB:
             'dream_local_time': dream_local_time,
         }
 
+    def get_plaud_import(self, plaud_recording_id):
+        """Return a Plaud import row by upstream recording id."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM plaud_imports WHERE plaud_recording_id = ?',
+                (plaud_recording_id,),
+            )
+            row = cursor.fetchone()
+            return self._row_to_dict(row) if row else None
+
+    def create_or_update_plaud_import(self, plaud_recording_id, **fields):
+        """Create or update the tracking row for a Plaud recording."""
+        if not plaud_recording_id:
+            raise ValueError("plaud_recording_id is required")
+
+        allowed = {
+            'title',
+            'started_at',
+            'audio_filename',
+            'transcript_id',
+            'dream_id',
+            'transcript_source',
+            'import_status',
+            'last_error',
+            'raw_metadata_json',
+        }
+        updates = {key: value for key, value in fields.items() if key in allowed}
+
+        existing = self.get_plaud_import(plaud_recording_id)
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            if existing:
+                if updates:
+                    set_clauses = [f"{key} = ?" for key in updates]
+                    set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+                    cursor.execute(
+                        f'''
+                            UPDATE plaud_imports
+                            SET {', '.join(set_clauses)}
+                            WHERE plaud_recording_id = ?
+                        ''',
+                        list(updates.values()) + [plaud_recording_id],
+                    )
+            else:
+                columns = ['plaud_recording_id'] + list(updates.keys())
+                placeholders = ', '.join('?' for _ in columns)
+                cursor.execute(
+                    f'''
+                        INSERT INTO plaud_imports ({', '.join(columns)})
+                        VALUES ({placeholders})
+                    ''',
+                    [plaud_recording_id] + list(updates.values()),
+                )
+            conn.commit()
+
+        return self.get_plaud_import(plaud_recording_id)
+
+    def mark_plaud_import_status(self, plaud_recording_id, status, error=None):
+        """Update Plaud import status and optional last error."""
+        updates = {'import_status': status}
+        if error is not None:
+            updates['last_error'] = str(error)
+        elif status in ('processing', 'completed'):
+            updates['last_error'] = None
+        return self.create_or_update_plaud_import(plaud_recording_id, **updates)
+
+    def complete_plaud_import(self, plaud_recording_id, *, transcript_id, dream_id, audio_filename, transcript_source):
+        """Mark a Plaud import completed with linked local records."""
+        return self.create_or_update_plaud_import(
+            plaud_recording_id,
+            transcript_id=transcript_id,
+            dream_id=dream_id,
+            audio_filename=audio_filename,
+            transcript_source=transcript_source,
+            import_status='completed',
+            last_error=None,
+        )
+
     def link_transcript_to_dream(self, transcript_id, dream_id):
         """Associate a previously saved raw transcript with the generated dream row."""
         with sqlite3.connect(self.db_path) as conn:
@@ -207,6 +325,15 @@ class DreamDB:
             )
             conn.commit()
             return cursor.rowcount > 0
+
+    def get_dream_transcript(self, transcript_id):
+        """Return a stored raw transcript row by id."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM dream_transcripts WHERE id = ?', (transcript_id,))
+            row = cursor.fetchone()
+            return self._row_to_dict(row) if row else None
 
     def get_dayone_sync_jobs(self, statuses=('pending',), limit=None):
         """Return Day One outbox jobs joined with their transcript payloads."""

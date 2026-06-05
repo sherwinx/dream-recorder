@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.dreamrecorder.plaud-import</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/spaceylamb/Desktop/vibe_coding/dreamrecorder/dream-recorder/scripts/run_plaud_importer.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/spaceylamb/Desktop/vibe_coding/dreamrecorder/dream-recorder</string>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>12</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/dream-recorder-plaud-import.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/dream-recorder-plaud-import.err</string>
+</dict>
+</plist>

@@ -1,4 +1,5 @@
 import pytest
+from io import BytesIO
 
 def test_index_page(test_client):
     resp = test_client.get('/')
@@ -141,6 +142,43 @@ def test_delete_dream_removes_files(test_client, mocker, mock_dream_db, tmp_path
     mock_remove.assert_any_call(str(thumb))
     mock_remove.assert_any_call(str(audio))
     assert mock_remove.call_count == 3
+
+
+def test_import_plaud_requires_recording_id(test_client):
+    resp = test_client.post('/api/import/plaud', data={})
+    assert resp.status_code == 400
+    assert 'plaud_recording_id' in resp.get_json()['message']
+
+
+def test_import_plaud_duplicate_short_circuits(test_client, mock_dream_db):
+    mock_dream_db.get_plaud_import.return_value = {
+        'plaud_recording_id': 'abc',
+        'import_status': 'completed',
+    }
+    resp = test_client.post('/api/import/plaud', data={'plaud_recording_id': 'abc'})
+    assert resp.status_code == 200
+    assert resp.get_json()['duplicate'] is True
+
+
+def test_import_plaud_processes_upload(test_client, mocker, mock_dream_db):
+    mock_dream_db.get_plaud_import.return_value = None
+    mocker.patch('dream_recorder.save_plaud_audio', return_value='plaud/abc.mp3')
+    mock_process = mocker.patch(
+        'dream_recorder.process_plaud_import',
+        return_value={'status': 'imported', 'dream_id': 12, 'plaud_import': {'plaud_recording_id': 'abc'}},
+    )
+
+    resp = test_client.post('/api/import/plaud', data={
+        'plaud_recording_id': 'abc',
+        'start_at': '2026-06-04T06:12:00-07:00',
+        'title': 'Morning dream',
+        'transcript': 'I dreamed about water.',
+        'audio_file': (BytesIO(b'audio'), 'abc.mp3'),
+    }, content_type='multipart/form-data')
+
+    assert resp.status_code == 201
+    assert resp.get_json()['dream_id'] == 12
+    mock_process.assert_called_once()
 
 def test_404_page(test_client):
     resp = test_client.get('/nonexistent')

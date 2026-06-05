@@ -56,6 +56,27 @@ def idempotency_marker(idempotency_key: str) -> str:
     return f"<!-- dream-recorder:{idempotency_key} -->"
 
 
+IDEMPOTENCY_MARKER_RE = re.compile(r"dream\\?-recorder:")
+
+
+def strip_idempotency_markers(text: str) -> str:
+    cleaned_lines = []
+    lines = text.splitlines()
+    skip_next_code_fence = False
+    for line in lines:
+        if skip_next_code_fence and line.strip() == "```":
+            skip_next_code_fence = False
+            continue
+        skip_next_code_fence = False
+        if IDEMPOTENCY_MARKER_RE.search(line):
+            if cleaned_lines and cleaned_lines[-1].strip() == "```":
+                cleaned_lines.pop()
+                skip_next_code_fence = True
+            continue
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines).strip()
+
+
 def format_dream_entry(
     dream_text: str,
     *,
@@ -66,8 +87,6 @@ def format_dream_entry(
     if dream_local_time:
         parts.append(dream_local_time)
     parts.append(dream_text.strip())
-    if idempotency_key:
-        parts.append(idempotency_marker(idempotency_key))
     return "\n".join(parts)
 
 
@@ -384,20 +403,28 @@ def insert_dream_into_body(
     next_heading = NEXT_HEADING_RE.search(body, section_start)
     section_end = next_heading.start() if next_heading else len(body)
     existing_section = body[section_start:section_end]
+    has_legacy_marker = IDEMPOTENCY_MARKER_RE.search(existing_section) is not None
+    cleaned_existing_section = strip_idempotency_markers(existing_section) if has_legacy_marker else existing_section
 
-    marker = idempotency_marker(idempotency_key) if idempotency_key else None
-    if marker and marker in existing_section:
-        return body, False
+    if idempotency_key and idempotency_key in existing_section:
+        cleaned_body = body[:section_start] + cleaned_existing_section + body[section_end:]
+        return cleaned_body, cleaned_body != body
     if dream in existing_section:
+        if has_legacy_marker:
+            cleaned_body = body[:section_start] + cleaned_existing_section + body[section_end:]
+            return cleaned_body, cleaned_body != body
         return body, False
+    if dream in cleaned_existing_section:
+        cleaned_body = body[:section_start] + cleaned_existing_section + body[section_end:]
+        return cleaned_body, cleaned_body != body
 
     entry_text = format_dream_entry(
         dream,
         dream_local_time=dream_local_time,
         idempotency_key=idempotency_key,
     )
-    if existing_section.strip():
-        new_section = f"{existing_section.rstrip()}\n\n{entry_text}\n\n"
+    if cleaned_existing_section:
+        new_section = f"{cleaned_existing_section.rstrip()}\n\n{entry_text}\n\n"
     else:
         new_section = f"\n{entry_text}\n\n"
     return body[:section_start] + new_section + body[section_end:], True
