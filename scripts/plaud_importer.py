@@ -74,7 +74,24 @@ def clean_plaud_transcript(transcript: str | None) -> str:
     cleaned = (transcript or "").strip()
     if UNAVAILABLE_TRANSCRIPT_RE.match(cleaned):
         return ""
-    return cleaned
+    lines = []
+    for line in cleaned.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("- Fetching transcript"):
+            continue
+        if stripped.lower().startswith("transcript:"):
+            continue
+        stripped = re.sub(
+            r"^\[\d{2}:\d{2}(?::\d{2})?\s*-\s*\d{2}:\d{2}(?::\d{2})?\]\s*",
+            "",
+            stripped,
+        )
+        stripped = re.sub(r"^Speaker\s+\d+:\s*", "", stripped, flags=re.IGNORECASE)
+        if stripped:
+            lines.append(stripped)
+    return "\n".join(lines)
 
 
 def mark_status(path: Path, status: str, error: str | None = None) -> None:

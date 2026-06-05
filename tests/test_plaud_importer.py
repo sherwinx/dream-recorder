@@ -153,6 +153,17 @@ def test_unavailable_plaud_transcript_waits_instead_of_uploading(tmp_path, monke
     assert posted == []
 
 
+def test_clean_plaud_transcript_removes_cli_wrapper_and_speaker_labels():
+    raw = """- Fetching transcript...
+
+Transcript: 06-05 梦境分享
+
+[00:01 - 00:29] Speaker 1: 嗯，梦到我的奶奶家。
+[00:31 - 01:09] Speaker 1: 还梦到奶奶有点不舒服。
+"""
+    assert plaud_importer.clean_plaud_transcript(raw) == "嗯，梦到我的奶奶家。\n还梦到奶奶有点不舒服。"
+
+
 def test_plaud_cli_table_parser_extracts_files():
     output = """  ID                                  NAME                                  DATE          DURATION
   ──────────────────────────────────────────────────────────────────────────────────────────────────
