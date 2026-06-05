@@ -28,7 +28,7 @@ def test_queue_and_upload_pending_retries_when_pi_is_offline(tmp_path, monkeypat
         outbox_dir=outbox,
         pi_import_url="http://dreamer.local:5000/api/import/plaud",
     )
-    assert result == {"uploaded": 0, "failed": 1}
+    assert result == {"uploaded": 0, "failed": 1, "waiting_transcript": 0}
     status = plaud_importer.read_json(outbox / "plaud-abc" / "status.json")
     assert status["status"] == "failed"
     assert "pi offline" in status["last_error"]
@@ -49,7 +49,7 @@ def test_queue_and_upload_pending_retries_when_pi_is_offline(tmp_path, monkeypat
         pi_import_url="http://dreamer.local:5000/api/import/plaud",
         token="secret",
     )
-    assert result == {"uploaded": 1, "failed": 0}
+    assert result == {"uploaded": 1, "failed": 0, "waiting_transcript": 0}
     status = plaud_importer.read_json(outbox / "plaud-abc" / "status.json")
     assert status["status"] == "uploaded"
     assert calls[0][1]["headers"] == {"Authorization": "Bearer secret"}
@@ -83,7 +83,7 @@ def test_upload_pending_can_filter_recording_id(tmp_path, monkeypatch):
         pi_import_url="http://dreamer.local:5000/api/import/plaud",
         recording_id="b",
     )
-    assert result == {"uploaded": 1, "failed": 0}
+    assert result == {"uploaded": 1, "failed": 0, "waiting_transcript": 0}
     assert posted_ids == ["b"]
 
 
@@ -115,12 +115,12 @@ def test_pull_recent_recordings_can_filter_recording_id(tmp_path, monkeypatch):
         lookback_days=30,
         recording_id="b",
     )
-    assert result == {"pulled": 1, "skipped": 1}
+    assert result == {"pulled": 1, "skipped": 1, "waiting_transcript": 0}
     assert not (tmp_path / "outbox" / "a").exists()
     assert (tmp_path / "outbox" / "b" / "transcript.txt").read_text(encoding="utf-8") == "dream b"
 
 
-def test_unavailable_plaud_transcript_is_uploaded_as_empty(tmp_path, monkeypatch):
+def test_unavailable_plaud_transcript_waits_instead_of_uploading(tmp_path, monkeypatch):
     audio = tmp_path / "source.mp3"
     audio.write_bytes(b"audio")
     outbox = tmp_path / "outbox"
@@ -131,6 +131,8 @@ def test_unavailable_plaud_transcript_is_uploaded_as_empty(tmp_path, monkeypatch
         transcript="Transcript not available for this recording.",
     )
     assert (outbox / "plaud-empty" / "transcript.txt").read_text(encoding="utf-8") == ""
+    status = plaud_importer.read_json(outbox / "plaud-empty" / "status.json")
+    assert status["status"] == "waiting_transcript"
 
     class FakeResponse:
         def raise_for_status(self):
@@ -147,8 +149,8 @@ def test_unavailable_plaud_transcript_is_uploaded_as_empty(tmp_path, monkeypatch
         outbox_dir=outbox,
         pi_import_url="http://dreamer.local:5000/api/import/plaud",
     )
-    assert result == {"uploaded": 1, "failed": 0}
-    assert posted[0]["transcript"] == ""
+    assert result == {"uploaded": 0, "failed": 0, "waiting_transcript": 1}
+    assert posted == []
 
 
 def test_plaud_cli_table_parser_extracts_files():

@@ -88,13 +88,16 @@ def convert_audio_to_wav(source_path):
 
 
 def transcript_for_import(audio_path, transcript=None, logger=None, config=None):
+    config = config or get_config()
     cleaned = clean_plaud_transcript(transcript)
     if cleaned:
         return cleaned, 'plaud'
+    if str(config.get('PLAUD_REQUIRE_TRANSCRIPT', True)).lower() in ('1', 'true', 'yes'):
+        raise PlaudImportError("Plaud transcript is required before import")
 
     wav_path, should_delete = convert_audio_to_wav(audio_path)
     try:
-        generated = transcribe_audio(wav_path, logger=logger, config=config or get_config())
+        generated = transcribe_audio(wav_path, logger=logger, config=config)
         if not generated:
             raise PlaudImportError("Plaud transcript was empty and fallback transcription produced no text")
         return generated, 'google_speech'

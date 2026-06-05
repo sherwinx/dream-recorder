@@ -89,6 +89,7 @@
   "DAYONE_SYNC_LIMIT": 50,
   "PLAUD_IMPORT_TOKEN": "",
   "PLAUD_IMPORT_DEVICE_ID": "plaud-notepin",
+  "PLAUD_REQUIRE_TRANSCRIPT": true,
   "PLAUD_PI_IMPORT_URL": "http://dreamer.local:5000/api/import/plaud",
   "PLAUD_IMPORT_LOOKBACK_DAYS": 14,
   "PLAUD_IMPORT_OUTBOX_DIR": "db/plaud_outbox",

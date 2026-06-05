@@ -86,7 +86,7 @@ def mark_status(path: Path, status: str, error: str | None = None) -> None:
     })
     if error is not None:
         state["last_error"] = error
-    elif status in ("queued", "uploaded"):
+    elif status in ("queued", "uploaded", "waiting_transcript"):
         state.pop("last_error", None)
     write_json(state_path, state)
 
@@ -201,13 +201,14 @@ def queue_recording(
     transcript: str,
 ) -> Path:
     recording_id = metadata["id"]
+    cleaned_transcript = clean_plaud_transcript(transcript)
     target_dir = recording_dir(outbox_dir, recording_id)
     target_dir.mkdir(parents=True, exist_ok=True)
     target_audio = target_dir / audio_path.name
     if audio_path.resolve() != target_audio.resolve():
         shutil.copy2(audio_path, target_audio)
     write_json(target_dir / "metadata.json", metadata)
-    (target_dir / "transcript.txt").write_text(clean_plaud_transcript(transcript), encoding="utf-8")
+    (target_dir / "transcript.txt").write_text(cleaned_transcript, encoding="utf-8")
     write_json(target_dir / "payload.json", {
         "plaud_recording_id": recording_id,
         "title": metadata.get("name") or metadata.get("title") or "",
@@ -215,7 +216,7 @@ def queue_recording(
         "audio_filename": target_audio.name,
         "metadata_json": metadata,
     })
-    mark_status(target_dir, "queued")
+    mark_status(target_dir, "queued" if cleaned_transcript else "waiting_transcript")
     return target_dir
 
 
@@ -229,6 +230,7 @@ def pull_recent_recordings(
     cutoff = utc_now() - timedelta(days=lookback_days)
     pulled = 0
     skipped = 0
+    waiting_transcript = 0
     for item in cli.list_files():
         item_recording_id = item.get("id")
         if not item_recording_id:
@@ -259,8 +261,10 @@ def pull_recent_recordings(
             audio_path=audio_path,
             transcript=transcript,
         )
+        if not clean_plaud_transcript(transcript):
+            waiting_transcript += 1
         pulled += 1
-    return {"pulled": pulled, "skipped": skipped}
+    return {"pulled": pulled, "skipped": skipped, "waiting_transcript": waiting_transcript}
 
 
 def upload_pending(
@@ -273,6 +277,7 @@ def upload_pending(
 ) -> dict[str, Any]:
     uploaded = 0
     failed = 0
+    waiting_transcript = 0
     for path in sorted(outbox_dir.iterdir() if outbox_dir.exists() else []):
         if not path.is_dir():
             continue
@@ -291,14 +296,20 @@ def upload_pending(
             failed += 1
             continue
 
+        transcript_text = clean_plaud_transcript(
+            transcript_path.read_text(encoding="utf-8") if transcript_path.exists() else ""
+        )
+        if not transcript_text:
+            mark_status(path, "waiting_transcript")
+            waiting_transcript += 1
+            continue
+
         data = {
             "plaud_recording_id": payload["plaud_recording_id"],
             "title": payload.get("title") or "",
             "start_at": payload.get("start_at") or "",
             "audio_filename": payload["audio_filename"],
-            "transcript": clean_plaud_transcript(
-                transcript_path.read_text(encoding="utf-8") if transcript_path.exists() else ""
-            ),
+            "transcript": transcript_text,
             "metadata_json": json.dumps(payload.get("metadata_json") or {}, ensure_ascii=False),
         }
         headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -317,7 +328,7 @@ def upload_pending(
         except Exception as exc:
             mark_status(path, "failed", str(exc))
             failed += 1
-    return {"uploaded": uploaded, "failed": failed}
+    return {"uploaded": uploaded, "failed": failed, "waiting_transcript": waiting_transcript}
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

@@ -665,6 +665,13 @@
         "type": "string"
     },
     {
+        "name": "PLAUD_REQUIRE_TRANSCRIPT",
+        "category": "Plaud",
+        "description": "Require a Plaud-generated transcript before importing Plaud audio into Dream Recorder.",
+        "default": true,
+        "type": "boolean"
+    },
+    {
         "name": "PLAUD_PI_IMPORT_URL",
         "category": "Plaud",
         "description": "Dream Recorder API endpoint that receives Plaud audio, transcript, and metadata.",

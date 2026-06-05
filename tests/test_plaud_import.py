@@ -1,4 +1,6 @@
-from functions.plaud_import import clean_plaud_transcript, parse_plaud_datetime
+import pytest
+
+from functions.plaud_import import PlaudImportError, clean_plaud_transcript, parse_plaud_datetime, transcript_for_import
 
 
 def test_parse_plaud_datetime_treats_naive_start_at_as_utc():
@@ -21,3 +23,11 @@ def test_parse_plaud_datetime_converts_offset_to_default_timezone():
 
 def test_clean_plaud_transcript_ignores_unavailable_message():
     assert clean_plaud_transcript("Transcript not available for this recording.") == ""
+
+
+def test_transcript_for_import_requires_plaud_transcript_by_default(tmp_path):
+    audio = tmp_path / "audio.mp3"
+    audio.write_bytes(b"audio")
+
+    with pytest.raises(PlaudImportError, match="Plaud transcript is required"):
+        transcript_for_import(audio, transcript="", config={"PLAUD_REQUIRE_TRANSCRIPT": True})
