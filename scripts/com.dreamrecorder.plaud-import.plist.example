@@ -8,11 +8,9 @@
 
   <key>ProgramArguments</key>
   <array>
+    <string>/bin/zsh</string>
     <string>/Users/spaceylamb/Desktop/vibe_coding/dreamrecorder/dream-recorder/scripts/run_plaud_importer.sh</string>
   </array>
-
-  <key>WorkingDirectory</key>
-  <string>/Users/spaceylamb/Desktop/vibe_coding/dreamrecorder/dream-recorder</string>
 
   <key>StartCalendarInterval</key>
   <dict>
