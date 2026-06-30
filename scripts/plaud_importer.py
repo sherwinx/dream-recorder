@@ -15,12 +15,16 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 
 
 DEFAULT_OUTBOX_DIR = "db/plaud_outbox"
 DEFAULT_PLAUD_CLI = "plaud"
+DEFAULT_DAYONE_COMMAND = "/Applications/Day One.app/Contents/MacOS/dayone"
+DEFAULT_DAYONE_JOURNAL_NAME = "每日一记"
+DEFAULT_TIMEZONE = "America/Los_Angeles"
 ISO_RE = re.compile(r"\d{4}-\d{2}-\d{2}T[^\s]+")
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 UNAVAILABLE_TRANSCRIPT_RE = re.compile(
@@ -106,6 +110,40 @@ def mark_status(path: Path, status: str, error: str | None = None) -> None:
     elif status in ("queued", "uploaded", "waiting_transcript"):
         state.pop("last_error", None)
     write_json(state_path, state)
+
+
+def mark_dayone_status(
+    path: Path,
+    status: str,
+    error: str | None = None,
+    *,
+    entry_id: str | None = None,
+    action: str | None = None,
+) -> None:
+    state_path = path / "status.json"
+    state = read_json(state_path, default={}) or {}
+    state.update({
+        "dayone_status": status,
+        "dayone_updated_at": utc_now().isoformat(),
+    })
+    if entry_id:
+        state["dayone_entry_id"] = entry_id
+    if action:
+        state["dayone_action"] = action
+    if error is not None:
+        state["dayone_last_error"] = error
+    elif status == "synced":
+        state.pop("dayone_last_error", None)
+    write_json(state_path, state)
+
+
+def local_datetime_for_payload(payload: dict[str, Any], timezone_name: str) -> datetime:
+    local_tz = ZoneInfo(timezone_name)
+    started_at = payload.get("start_at") or payload.get("created_at")
+    parsed = parse_iso(started_at)
+    if parsed is None:
+        parsed = utc_now()
+    return parsed.astimezone(local_tz)
 
 
 @dataclass
@@ -348,13 +386,105 @@ def upload_pending(
     return {"uploaded": uploaded, "failed": failed, "waiting_transcript": waiting_transcript}
 
 
+def sync_dayone_pending(
+    *,
+    outbox_dir: Path,
+    journal_name: str = DEFAULT_DAYONE_JOURNAL_NAME,
+    dayone_command: str = DEFAULT_DAYONE_COMMAND,
+    timezone_name: str = DEFAULT_TIMEZONE,
+    recording_id: str | None = None,
+    upsert_func=None,
+) -> dict[str, Any]:
+    synced = 0
+    failed = 0
+    waiting_transcript = 0
+    skipped = 0
+    if upsert_func is None:
+        from scripts.dayone_worker import upsert_daily_reflection_dream
+
+        upsert_func = upsert_daily_reflection_dream
+
+    for path in sorted(outbox_dir.iterdir() if outbox_dir.exists() else []):
+        if not path.is_dir():
+            continue
+        if recording_id and path.name != recording_id:
+            continue
+        status = read_json(path / "status.json", default={}) or {}
+        if status.get("status") == "ignored" or status.get("dayone_status") == "synced":
+            skipped += 1
+            continue
+        payload = read_json(path / "payload.json")
+        if not payload:
+            skipped += 1
+            continue
+
+        transcript_path = path / "transcript.txt"
+        transcript_text = clean_plaud_transcript(
+            transcript_path.read_text(encoding="utf-8") if transcript_path.exists() else ""
+        )
+        if not transcript_text:
+            mark_dayone_status(path, "waiting_transcript")
+            waiting_transcript += 1
+            continue
+
+        local_dt = local_datetime_for_payload(payload, timezone_name)
+        try:
+            result = upsert_func(
+                dream_text=transcript_text,
+                journal_name=journal_name,
+                command=dayone_command,
+                target_date=local_dt.date(),
+                dream_local_time=local_dt.strftime("%H:%M"),
+                idempotency_key=f"plaud:{payload['plaud_recording_id']}",
+            )
+            entry = result.get("entry") or {}
+            mark_dayone_status(
+                path,
+                "synced",
+                entry_id=entry.get("entryId") or entry.get("id"),
+                action=result.get("action"),
+            )
+            synced += 1
+        except Exception as exc:
+            mark_dayone_status(path, "failed", str(exc))
+            failed += 1
+    return {
+        "synced": synced,
+        "failed": failed,
+        "waiting_transcript": waiting_transcript,
+        "skipped": skipped,
+    }
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["pull", "upload-pending", "sync"])
+    parser.add_argument("command", choices=["pull", "upload-pending", "sync-dayone", "sync"])
     parser.add_argument("--outbox-dir", default=os.getenv("PLAUD_IMPORT_OUTBOX_DIR", DEFAULT_OUTBOX_DIR))
     parser.add_argument("--plaud-cli", default=os.getenv("PLAUD_CLI_PATH", DEFAULT_PLAUD_CLI))
     parser.add_argument("--pi-import-url", default=os.getenv("PLAUD_PI_IMPORT_URL"))
     parser.add_argument("--token", default=os.getenv("PLAUD_IMPORT_TOKEN"))
+    parser.add_argument(
+        "--dayone-journal-name",
+        default=os.getenv("DAYONE_JOURNAL_NAME", DEFAULT_DAYONE_JOURNAL_NAME),
+    )
+    parser.add_argument(
+        "--dayone-command",
+        default=os.getenv("DAYONE_COMMAND", DEFAULT_DAYONE_COMMAND),
+    )
+    parser.add_argument(
+        "--timezone",
+        default=os.getenv("DREAM_RECORDER_TIMEZONE", DEFAULT_TIMEZONE),
+    )
+    parser.add_argument(
+        "--skip-dayone",
+        action="store_true",
+        help="Do not write queued Plaud transcripts directly to Day One during sync.",
+    )
+    parser.add_argument(
+        "--skip-pi-upload",
+        action="store_true",
+        help="Do not upload queued Plaud recordings to the Dream Recorder Pi during sync.",
+    )
     parser.add_argument("--lookback-days", type=int, default=int(os.getenv("PLAUD_IMPORT_LOOKBACK_DAYS", "14")))
     parser.add_argument("--recording-id", help="Only upload a specific queued Plaud recording id.")
     parser.add_argument("--interval-seconds", type=int, default=0)
@@ -372,7 +502,15 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
             lookback_days=args.lookback_days,
             recording_id=args.recording_id,
         )
-    if args.command in ("upload-pending", "sync"):
+    if args.command in ("sync-dayone", "sync") and not args.skip_dayone:
+        summary["dayone"] = sync_dayone_pending(
+            outbox_dir=outbox_dir,
+            journal_name=args.dayone_journal_name,
+            dayone_command=args.dayone_command,
+            timezone_name=args.timezone,
+            recording_id=args.recording_id,
+        )
+    if args.command in ("upload-pending", "sync") and not args.skip_pi_upload:
         if not args.pi_import_url:
             raise PlaudImporterError("--pi-import-url or PLAUD_PI_IMPORT_URL is required")
         summary["upload"] = upload_pending(

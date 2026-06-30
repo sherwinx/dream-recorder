@@ -153,6 +153,87 @@ def test_unavailable_plaud_transcript_waits_instead_of_uploading(tmp_path, monke
     assert posted == []
 
 
+def test_sync_dayone_pending_writes_transcript_without_pi(tmp_path):
+    audio = tmp_path / "source.mp3"
+    audio.write_bytes(b"audio")
+    outbox = tmp_path / "outbox"
+    plaud_importer.queue_recording(
+        outbox_dir=outbox,
+        metadata={
+            "id": "plaud-dayone",
+            "name": "Morning dream",
+            "start_at": "2026-06-04T13:12:00+00:00",
+        },
+        audio_path=audio,
+        transcript="I dreamed about a train.",
+    )
+
+    calls = []
+
+    def fake_upsert(**kwargs):
+        calls.append(kwargs)
+        return {"action": "created", "entry": {"entryId": "entry-1"}}
+
+    result = plaud_importer.sync_dayone_pending(
+        outbox_dir=outbox,
+        upsert_func=fake_upsert,
+    )
+
+    assert result == {"synced": 1, "failed": 0, "waiting_transcript": 0, "skipped": 0}
+    assert calls[0]["dream_text"] == "I dreamed about a train."
+    assert calls[0]["target_date"].isoformat() == "2026-06-04"
+    assert calls[0]["dream_local_time"] == "06:12"
+    assert calls[0]["idempotency_key"] == "plaud:plaud-dayone"
+
+    status = plaud_importer.read_json(outbox / "plaud-dayone" / "status.json")
+    assert status["status"] == "queued"
+    assert status["dayone_status"] == "synced"
+    assert status["dayone_entry_id"] == "entry-1"
+
+
+def test_sync_dayone_pending_skips_synced_recording(tmp_path):
+    audio = tmp_path / "source.mp3"
+    audio.write_bytes(b"audio")
+    outbox = tmp_path / "outbox"
+    path = plaud_importer.queue_recording(
+        outbox_dir=outbox,
+        metadata={"id": "already-synced", "start_at": "2026-06-04T06:12:00-07:00"},
+        audio_path=audio,
+        transcript="I dreamed about a train.",
+    )
+    plaud_importer.mark_dayone_status(path, "synced", entry_id="entry-1")
+
+    calls = []
+    result = plaud_importer.sync_dayone_pending(
+        outbox_dir=outbox,
+        upsert_func=lambda **kwargs: calls.append(kwargs),
+    )
+
+    assert result == {"synced": 0, "failed": 0, "waiting_transcript": 0, "skipped": 1}
+    assert calls == []
+
+
+def test_sync_dayone_pending_waits_for_transcript(tmp_path):
+    audio = tmp_path / "source.mp3"
+    audio.write_bytes(b"audio")
+    outbox = tmp_path / "outbox"
+    plaud_importer.queue_recording(
+        outbox_dir=outbox,
+        metadata={"id": "no-transcript", "start_at": "2026-06-04T06:12:00-07:00"},
+        audio_path=audio,
+        transcript="Transcript not available.",
+    )
+
+    result = plaud_importer.sync_dayone_pending(
+        outbox_dir=outbox,
+        upsert_func=lambda **kwargs: None,
+    )
+
+    assert result == {"synced": 0, "failed": 0, "waiting_transcript": 1, "skipped": 0}
+    status = plaud_importer.read_json(outbox / "no-transcript" / "status.json")
+    assert status["dayone_status"] == "waiting_transcript"
+
+
 def test_clean_plaud_transcript_removes_cli_wrapper_and_speaker_labels():
     raw = """- Fetching transcript...
 
