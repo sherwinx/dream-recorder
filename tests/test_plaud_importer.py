@@ -191,6 +191,84 @@ def test_pull_retries_recordings_whose_transcript_is_still_missing(tmp_path, mon
     assert transcript == "The transcript finally landed."
 
 
+def test_pull_backfills_transcript_for_a_recording_already_uploaded_to_the_pi(tmp_path, monkeypatch):
+    """`uploaded` means "sent to the Pi", which says nothing about whether we hold
+    a transcript. Skipping on it stranded a real dream: Plaud transcribed it days
+    after the upload and we never fetched the text."""
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    audio = tmp_path / "source.mp3"
+    audio.write_bytes(b"audio")
+    outbox = tmp_path / "outbox"
+    path = plaud_importer.queue_recording(
+        outbox_dir=outbox,
+        metadata={"id": "uploaded-no-transcript", "start_at": recent},
+        audio_path=audio,
+        transcript="Transcript not available.",
+    )
+    plaud_importer.mark_status(path, "uploaded")
+
+    class FakeCli:
+        def list_files(self):
+            return [{"id": "uploaded-no-transcript", "created_at": recent}]
+
+        def file(self, recording_id):
+            return {"id": recording_id, "start_at": recent}
+
+        def audio_url(self, recording_id):
+            return f"https://example.test/{recording_id}.mp3"
+
+        def transcript(self, recording_id):
+            return "I dreamed about an audit."
+
+    def fake_download(_url, destination, timeout_seconds=120):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"audio")
+
+    monkeypatch.setattr(plaud_importer, "download_audio", fake_download)
+    result = plaud_importer.pull_recent_recordings(
+        outbox_dir=outbox, cli=FakeCli(), lookback_days=30
+    )
+
+    assert result == {"pulled": 1, "skipped": 0, "waiting_transcript": 0}
+    assert (outbox / "uploaded-no-transcript" / "transcript.txt").read_text(
+        encoding="utf-8"
+    ) == "I dreamed about an audit."
+
+
+def test_pull_always_skips_recordings_marked_ignored(tmp_path):
+    """`ignored` is a deliberate user decision, so it outranks any backfill."""
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    audio = tmp_path / "source.mp3"
+    audio.write_bytes(b"audio")
+    outbox = tmp_path / "outbox"
+    path = plaud_importer.queue_recording(
+        outbox_dir=outbox,
+        metadata={"id": "not-a-dream", "start_at": recent},
+        audio_path=audio,
+        transcript="Transcript not available.",
+    )
+    plaud_importer.mark_status(path, "ignored")
+
+    class FakeCli:
+        def list_files(self):
+            return [{"id": "not-a-dream", "created_at": recent}]
+
+        def file(self, recording_id):
+            raise AssertionError("must not touch an ignored recording")
+
+        def audio_url(self, recording_id):
+            raise AssertionError("must not touch an ignored recording")
+
+        def transcript(self, recording_id):
+            raise AssertionError("must not touch an ignored recording")
+
+    result = plaud_importer.pull_recent_recordings(
+        outbox_dir=outbox, cli=FakeCli(), lookback_days=30
+    )
+
+    assert result == {"pulled": 0, "skipped": 1, "waiting_transcript": 0}
+
+
 def test_pull_recent_recordings_can_filter_recording_id(tmp_path, monkeypatch):
     # Relative to today: a hardcoded date silently ages out of the lookback
     # window and turns this test red weeks after it was written.

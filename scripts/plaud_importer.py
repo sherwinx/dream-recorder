@@ -314,14 +314,15 @@ def pull_recent_recordings(
             continue
         target_dir = recording_dir(outbox_dir, item_recording_id)
         status = read_json(target_dir / "status.json", default={}) or {}
-        if status.get("status") in ("uploaded", "ignored"):
+        if status.get("status") == "ignored":
             skipped += 1
             continue
         if is_locally_complete(target_dir):
-            # Already downloaded with a usable transcript, so there is nothing
-            # left to fetch. Status alone is not enough to decide this: with the
-            # Pi offline a recording never reaches "uploaded" and would be
-            # re-downloaded on every run.
+            # What we already hold locally -- not the upload status -- decides
+            # whether there is anything left to fetch. "uploaded" only means the
+            # Pi got it, so gating on it stranded recordings that Plaud
+            # transcribed after the upload; and with the Pi offline nothing ever
+            # reaches "uploaded", which re-downloaded everything on every run.
             skipped += 1
             continue
 
