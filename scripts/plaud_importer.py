@@ -275,6 +275,25 @@ def queue_recording(
     return target_dir
 
 
+def is_locally_complete(target_dir: Path) -> bool:
+    """True when the outbox already holds this recording's audio and a usable
+    transcript, so re-fetching it from Plaud would download the same bytes again.
+
+    Recordings still waiting on Plaud's asynchronous transcription deliberately
+    return False -- picking those up later is why we re-pull at all.
+    """
+    payload = read_json(target_dir / "payload.json")
+    if not payload:
+        return False
+    audio_filename = payload.get("audio_filename")
+    if not audio_filename or not (target_dir / audio_filename).exists():
+        return False
+    transcript_path = target_dir / "transcript.txt"
+    if not transcript_path.exists():
+        return False
+    return bool(clean_plaud_transcript(transcript_path.read_text(encoding="utf-8")))
+
+
 def pull_recent_recordings(
     *,
     outbox_dir: Path,
@@ -296,6 +315,13 @@ def pull_recent_recordings(
         target_dir = recording_dir(outbox_dir, item_recording_id)
         status = read_json(target_dir / "status.json", default={}) or {}
         if status.get("status") in ("uploaded", "ignored"):
+            skipped += 1
+            continue
+        if is_locally_complete(target_dir):
+            # Already downloaded with a usable transcript, so there is nothing
+            # left to fetch. Status alone is not enough to decide this: with the
+            # Pi offline a recording never reaches "uploaded" and would be
+            # re-downloaded on every run.
             skipped += 1
             continue
 
@@ -329,6 +355,7 @@ def upload_pending(
     token: str | None = None,
     recording_id: str | None = None,
     timeout_seconds: int = 900,
+    connect_timeout_seconds: int = 10,
 ) -> dict[str, Any]:
     uploaded = 0
     failed = 0
@@ -375,7 +402,10 @@ def upload_pending(
                     data=data,
                     files={"audio_file": (audio_path.name, audio_handle)},
                     headers=headers,
-                    timeout=timeout_seconds,
+                    # Separate connect from read: an offline Pi drops packets
+                    # rather than refusing, so a single long timeout would stall
+                    # the daily run for hours across every queued recording.
+                    timeout=(connect_timeout_seconds, timeout_seconds),
                 )
             response.raise_for_status()
             mark_status(path, "uploaded")
@@ -485,40 +515,79 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Do not upload queued Plaud recordings to the Dream Recorder Pi during sync.",
     )
+    parser.add_argument(
+        "--pi-optional",
+        action="store_true",
+        help=(
+            "Treat Pi upload failures as best-effort: still attempt and log them, "
+            "but do not fail the run. Use when the Pi is not always powered on."
+        ),
+    )
     parser.add_argument("--lookback-days", type=int, default=int(os.getenv("PLAUD_IMPORT_LOOKBACK_DAYS", "14")))
     parser.add_argument("--recording-id", help="Only upload a specific queued Plaud recording id.")
     parser.add_argument("--interval-seconds", type=int, default=0)
     return parser.parse_args(argv)
 
 
+def step_errors(summary: dict[str, Any]) -> dict[str, str]:
+    return {
+        name: result["error"]
+        for name, result in summary.items()
+        if isinstance(result, dict) and "error" in result
+    }
+
+
 def run_once(args: argparse.Namespace) -> dict[str, Any]:
     outbox_dir = Path(args.outbox_dir)
     outbox_dir.mkdir(parents=True, exist_ok=True)
     summary: dict[str, Any] = {}
+
+    def step(name: str, func) -> None:
+        """Record a step's failure instead of aborting the rest of the run.
+
+        The three steps are independent, so one broken dependency must not stall
+        the others: a missing Plaud CLI or an offline Pi should still leave
+        transcripts already in the outbox free to reach Day One.
+        """
+        try:
+            summary[name] = func()
+        except Exception as exc:
+            summary[name] = {"error": str(exc)}
+
     if args.command in ("pull", "sync"):
-        summary["pull"] = pull_recent_recordings(
-            outbox_dir=outbox_dir,
-            cli=PlaudCliClient(command=args.plaud_cli),
-            lookback_days=args.lookback_days,
-            recording_id=args.recording_id,
+        step(
+            "pull",
+            lambda: pull_recent_recordings(
+                outbox_dir=outbox_dir,
+                cli=PlaudCliClient(command=args.plaud_cli),
+                lookback_days=args.lookback_days,
+                recording_id=args.recording_id,
+            ),
         )
     if args.command in ("sync-dayone", "sync") and not args.skip_dayone:
-        summary["dayone"] = sync_dayone_pending(
-            outbox_dir=outbox_dir,
-            journal_name=args.dayone_journal_name,
-            dayone_command=args.dayone_command,
-            timezone_name=args.timezone,
-            recording_id=args.recording_id,
+        step(
+            "dayone",
+            lambda: sync_dayone_pending(
+                outbox_dir=outbox_dir,
+                journal_name=args.dayone_journal_name,
+                dayone_command=args.dayone_command,
+                timezone_name=args.timezone,
+                recording_id=args.recording_id,
+            ),
         )
     if args.command in ("upload-pending", "sync") and not args.skip_pi_upload:
-        if not args.pi_import_url:
-            raise PlaudImporterError("--pi-import-url or PLAUD_PI_IMPORT_URL is required")
-        summary["upload"] = upload_pending(
-            outbox_dir=outbox_dir,
-            pi_import_url=args.pi_import_url,
-            token=args.token,
-            recording_id=args.recording_id,
-        )
+
+        def upload() -> dict[str, Any]:
+            if not args.pi_import_url:
+                raise PlaudImporterError("--pi-import-url or PLAUD_PI_IMPORT_URL is required")
+            return upload_pending(
+                outbox_dir=outbox_dir,
+                pi_import_url=args.pi_import_url,
+                token=args.token,
+                recording_id=args.recording_id,
+            )
+
+        step("upload", upload)
     return summary
 
 
@@ -527,8 +596,17 @@ def main(argv: list[str]) -> int:
     while True:
         summary = run_once(args)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
+        # Isolating step failures must not make them silent: launchd only
+        # surfaces a run as failed via a nonzero exit code. Best-effort steps
+        # are still reported but excluded from that code, so a routinely
+        # offline Pi does not desensitise us to real failures.
+        errors = step_errors(summary)
+        best_effort = {"upload"} if args.pi_optional else set()
+        for name, message in errors.items():
+            label = "warning" if name in best_effort else "failed"
+            print(f"plaud importer step {name!r} {label}: {message}", file=sys.stderr)
         if args.interval_seconds <= 0:
-            return 0
+            return 1 if errors.keys() - best_effort else 0
         time.sleep(args.interval_seconds)
 
 

@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -55,6 +56,34 @@ def test_queue_and_upload_pending_retries_when_pi_is_offline(tmp_path, monkeypat
     assert calls[0][1]["headers"] == {"Authorization": "Bearer secret"}
 
 
+def test_upload_pending_uses_a_short_connect_timeout(tmp_path, monkeypatch):
+    """An unplugged Pi drops packets silently, so a single 900s timeout hangs the
+    whole daily job. Connect must give up fast while uploads keep a long read
+    budget."""
+    audio = tmp_path / "source.mp3"
+    audio.write_bytes(b"audio")
+    outbox = tmp_path / "outbox"
+    plaud_importer.queue_recording(
+        outbox_dir=outbox,
+        metadata={"id": "slow-pi", "start_at": "2026-06-04T06:12:00+00:00"},
+        audio_path=audio,
+        transcript="I dreamed about a train.",
+    )
+
+    seen = {}
+
+    def fake_post(url, **kwargs):
+        seen["timeout"] = kwargs.get("timeout")
+        raise RuntimeError("connection timed out")
+
+    monkeypatch.setattr(plaud_importer.requests, "post", fake_post)
+    plaud_importer.upload_pending(outbox_dir=outbox, pi_import_url="http://pi.local")
+
+    connect_timeout, read_timeout = seen["timeout"]
+    assert connect_timeout <= 15
+    assert read_timeout >= 300
+
+
 def test_upload_pending_can_filter_recording_id(tmp_path, monkeypatch):
     outbox = tmp_path / "outbox"
     for recording_id in ("a", "b"):
@@ -87,16 +116,95 @@ def test_upload_pending_can_filter_recording_id(tmp_path, monkeypatch):
     assert posted_ids == ["b"]
 
 
+def test_pull_skips_recordings_already_complete_in_the_outbox(tmp_path):
+    """Re-downloading every recording daily wasted ~2 minutes per run: the Pi is
+    offline so nothing ever reaches the `uploaded` status that used to gate this."""
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    audio = tmp_path / "source.mp3"
+    audio.write_bytes(b"audio")
+    outbox = tmp_path / "outbox"
+    plaud_importer.queue_recording(
+        outbox_dir=outbox,
+        metadata={"id": "complete", "start_at": recent},
+        audio_path=audio,
+        transcript="I dreamed about a train.",
+    )
+
+    class FakeCli:
+        def list_files(self):
+            return [{"id": "complete", "created_at": recent}]
+
+        def file(self, recording_id):
+            return {"id": recording_id, "start_at": recent}
+
+        def audio_url(self, recording_id):
+            raise AssertionError("must not re-download an already complete recording")
+
+        def transcript(self, recording_id):
+            raise AssertionError("must not re-fetch an already usable transcript")
+
+    result = plaud_importer.pull_recent_recordings(
+        outbox_dir=outbox, cli=FakeCli(), lookback_days=30
+    )
+
+    assert result == {"pulled": 0, "skipped": 1, "waiting_transcript": 0}
+
+
+def test_pull_retries_recordings_whose_transcript_is_still_missing(tmp_path, monkeypatch):
+    """Plaud transcribes asynchronously, so a recording queued without a transcript
+    must keep being retried -- that is the whole point of re-pulling."""
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    audio = tmp_path / "source.mp3"
+    audio.write_bytes(b"audio")
+    outbox = tmp_path / "outbox"
+    plaud_importer.queue_recording(
+        outbox_dir=outbox,
+        metadata={"id": "pending", "start_at": recent},
+        audio_path=audio,
+        transcript="Transcript not available.",
+    )
+
+    class FakeCli:
+        def list_files(self):
+            return [{"id": "pending", "created_at": recent}]
+
+        def file(self, recording_id):
+            return {"id": recording_id, "start_at": recent}
+
+        def audio_url(self, recording_id):
+            return f"https://example.test/{recording_id}.mp3"
+
+        def transcript(self, recording_id):
+            return "The transcript finally landed."
+
+    def fake_download(_url, destination, timeout_seconds=120):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"audio")
+
+    monkeypatch.setattr(plaud_importer, "download_audio", fake_download)
+    result = plaud_importer.pull_recent_recordings(
+        outbox_dir=outbox, cli=FakeCli(), lookback_days=30
+    )
+
+    assert result == {"pulled": 1, "skipped": 0, "waiting_transcript": 0}
+    transcript = (outbox / "pending" / "transcript.txt").read_text(encoding="utf-8")
+    assert transcript == "The transcript finally landed."
+
+
 def test_pull_recent_recordings_can_filter_recording_id(tmp_path, monkeypatch):
+    # Relative to today: a hardcoded date silently ages out of the lookback
+    # window and turns this test red weeks after it was written.
+    recent = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+
     class FakeCli:
         def list_files(self):
             return [
-                {"id": "a", "name": "Skip", "created_at": "2026-06-04T06:12:00+00:00"},
-                {"id": "b", "name": "Import", "created_at": "2026-06-04T06:13:00+00:00"},
+                {"id": "a", "name": "Skip", "created_at": recent},
+                {"id": "b", "name": "Import", "created_at": recent},
             ]
 
         def file(self, recording_id):
-            return {"id": recording_id, "start_at": "2026-06-04T06:13:00+00:00"}
+            return {"id": recording_id, "start_at": recent}
 
         def audio_url(self, recording_id):
             return f"https://example.test/{recording_id}.mp3"
@@ -268,3 +376,141 @@ def test_plaud_cli_table_parser_fails_loudly_on_unknown_format():
 def test_plaud_cli_table_parser_accepts_empty_page():
     client = plaud_importer.PlaudCliClient()
     assert client._parse_files_table("Files on this page: 0\n\nPage 1") == []
+
+
+def sync_args(outbox: Path):
+    return plaud_importer.parse_args(
+        [
+            "sync",
+            "--outbox-dir",
+            str(outbox),
+            "--pi-import-url",
+            "http://pi.local/api/import/plaud",
+        ]
+    )
+
+
+def test_run_once_still_writes_dayone_when_plaud_pull_fails(tmp_path, monkeypatch):
+    """A broken Plaud CLI must not block transcripts already sitting in the outbox."""
+    outbox = tmp_path / "outbox"
+    calls = []
+
+    def broken_pull(**kwargs):
+        raise plaud_importer.PlaudImporterError("env: node: No such file or directory")
+
+    monkeypatch.setattr(plaud_importer, "pull_recent_recordings", broken_pull)
+    monkeypatch.setattr(
+        plaud_importer,
+        "sync_dayone_pending",
+        lambda **kwargs: calls.append("dayone") or {"synced": 1, "failed": 0},
+    )
+    monkeypatch.setattr(
+        plaud_importer,
+        "upload_pending",
+        lambda **kwargs: calls.append("upload") or {"uploaded": 1, "failed": 0},
+    )
+
+    summary = plaud_importer.run_once(sync_args(outbox))
+
+    assert calls == ["dayone", "upload"]
+    assert "node" in summary["pull"]["error"]
+    assert summary["dayone"] == {"synced": 1, "failed": 0}
+    assert summary["upload"] == {"uploaded": 1, "failed": 0}
+
+
+def test_run_once_isolates_pi_upload_failure_from_dayone(tmp_path, monkeypatch):
+    """The Pi is not always online; that must not mark the Day One write as failed."""
+    outbox = tmp_path / "outbox"
+
+    monkeypatch.setattr(plaud_importer, "pull_recent_recordings", lambda **kwargs: {"queued": 0})
+    monkeypatch.setattr(plaud_importer, "sync_dayone_pending", lambda **kwargs: {"synced": 2, "failed": 0})
+
+    def offline_pi(**kwargs):
+        raise plaud_importer.PlaudImporterError("connection refused")
+
+    monkeypatch.setattr(plaud_importer, "upload_pending", offline_pi)
+
+    summary = plaud_importer.run_once(sync_args(outbox))
+
+    assert summary["dayone"] == {"synced": 2, "failed": 0}
+    assert "connection refused" in summary["upload"]["error"]
+
+
+def test_main_exits_nonzero_and_reports_when_a_step_fails(tmp_path, monkeypatch, capsys):
+    """Isolation must not make failures silent -- launchd needs a nonzero exit."""
+    outbox = tmp_path / "outbox"
+
+    monkeypatch.setattr(
+        plaud_importer,
+        "run_once",
+        lambda args: {"pull": {"error": "env: node: No such file or directory"}, "dayone": {"synced": 0}},
+    )
+
+    exit_code = plaud_importer.main(
+        ["sync", "--outbox-dir", str(outbox), "--pi-import-url", "http://pi.local"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "node" in captured.err
+    assert "pull" in captured.err
+
+
+def test_main_treats_offline_pi_as_best_effort_with_pi_optional(tmp_path, monkeypatch, capsys):
+    """The Pi is deliberately not always on, so its absence must not cry wolf daily."""
+    outbox = tmp_path / "outbox"
+    monkeypatch.setattr(
+        plaud_importer,
+        "run_once",
+        lambda args: {"pull": {"queued": 0}, "dayone": {"synced": 1}, "upload": {"error": "connection refused"}},
+    )
+
+    exit_code = plaud_importer.main(
+        ["sync", "--outbox-dir", str(outbox), "--pi-import-url", "http://pi.local", "--pi-optional"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    # still visible in the log, just not an alarm
+    assert "connection refused" in captured.err
+
+
+def test_main_still_alarms_on_pi_failure_without_pi_optional(tmp_path, monkeypatch):
+    outbox = tmp_path / "outbox"
+    monkeypatch.setattr(
+        plaud_importer,
+        "run_once",
+        lambda args: {"upload": {"error": "connection refused"}},
+    )
+
+    assert (
+        plaud_importer.main(["sync", "--outbox-dir", str(outbox), "--pi-import-url", "http://pi.local"])
+        == 1
+    )
+
+
+def test_main_alarms_on_dayone_failure_even_with_pi_optional(tmp_path, monkeypatch):
+    """--pi-optional must only excuse the Pi step, never the Day One write."""
+    outbox = tmp_path / "outbox"
+    monkeypatch.setattr(
+        plaud_importer,
+        "run_once",
+        lambda args: {"dayone": {"error": "Day One MCP timed out"}, "upload": {"error": "connection refused"}},
+    )
+
+    assert (
+        plaud_importer.main(
+            ["sync", "--outbox-dir", str(outbox), "--pi-import-url", "http://pi.local", "--pi-optional"]
+        )
+        == 1
+    )
+
+
+def test_main_exits_zero_when_every_step_succeeds(tmp_path, monkeypatch):
+    outbox = tmp_path / "outbox"
+    monkeypatch.setattr(plaud_importer, "run_once", lambda args: {"pull": {"queued": 0}, "dayone": {"synced": 1}})
+
+    assert (
+        plaud_importer.main(["sync", "--outbox-dir", str(outbox), "--pi-import-url", "http://pi.local"])
+        == 0
+    )
