@@ -164,15 +164,33 @@ class PlaudCliClient:
         return result.stdout.strip()
 
     def list_files(self) -> list[dict[str, Any]]:
-        output = self.run("files")
-        parsed = self._parse_json(output)
-        if isinstance(parsed, dict):
-            for key in ("files", "data", "results"):
-                if isinstance(parsed.get(key), list):
-                    return parsed[key]
-        if isinstance(parsed, list):
-            return parsed
-        return self._parse_files_table(output)
+        page_size = 100
+        files = []
+        for page in range(1, 1001):
+            output = self.run(
+                "files",
+                "--page",
+                str(page),
+                "--page-size",
+                str(page_size),
+            )
+            parsed = self._parse_json(output)
+            page_files = None
+            if isinstance(parsed, dict):
+                for key in ("files", "data", "results"):
+                    if isinstance(parsed.get(key), list):
+                        page_files = parsed[key]
+                        break
+            elif isinstance(parsed, list):
+                page_files = parsed
+            if page_files is None:
+                page_files = self._parse_files_table(output)
+
+            files.extend(page_files)
+            if len(page_files) < page_size:
+                return files
+
+        raise PlaudImporterError("Plaud files pagination exceeded 1000 pages")
 
     def file(self, recording_id: str) -> dict[str, Any]:
         output = self.run("file", recording_id)

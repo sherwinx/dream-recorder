@@ -456,6 +456,37 @@ def test_plaud_cli_table_parser_accepts_empty_page():
     assert client._parse_files_table("Files on this page: 0\n\nPage 1") == []
 
 
+def test_plaud_cli_list_files_requests_max_page_size_and_paginates(monkeypatch):
+    client = plaud_importer.PlaudCliClient()
+    first_page = [
+        {"id": f"recording-{index}", "created_at": "2026-07-29T08:00:00Z"}
+        for index in range(100)
+    ]
+    second_page = [{"id": "recording-100", "created_at": "2026-07-28T08:00:00Z"}]
+    outputs = [first_page, second_page]
+    calls = []
+
+    def fake_run(*args):
+        calls.append(args)
+        return plaud_importer.json.dumps(outputs.pop(0))
+
+    monkeypatch.setattr(client, "run", fake_run)
+
+    files = client.list_files()
+
+    assert len(files) == 101
+    assert calls == [
+        ("files", "--page", "1", "--page-size", "100"),
+        ("files", "--page", "2", "--page-size", "100"),
+    ]
+
+
+def test_plaud_launcher_disables_cli_telemetry():
+    runner = Path(__file__).resolve().parents[1] / "scripts" / "run_plaud_importer.sh"
+
+    assert "export PLAUD_TELEMETRY_DISABLED=1" in runner.read_text(encoding="utf-8")
+
+
 def sync_args(outbox: Path):
     return plaud_importer.parse_args(
         [

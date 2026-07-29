@@ -19,6 +19,9 @@ log "starting sync with node from $NODE_BIN"
 
 export PATH="$NODE_BIN:/Users/spaceylamb/.npm-global/bin:/Users/spaceylamb/opt/miniconda3/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export PYTHONPATH="$REPO_DIR"
+# Dream transcripts are sensitive. Plaud CLI 0.3.x otherwise sends command,
+# account/device, and recording identifiers to its US-hosted telemetry service.
+export PLAUD_TELEMETRY_DISABLED=1
 
 # The launchd plist invokes this via `/bin/zsh <script>`, so the shebang above is
 # ignored and the body must stay bash/zsh portable -- no PIPESTATUS. Appending
