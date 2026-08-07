@@ -26,7 +26,7 @@ def load_config():
     }
 
     # Determine which config to load
-    config_file = "config.json"
+    config_file = os.getenv("DREAM_RECORDER_CONFIG", "config.json")
 
     with open(config_file, "r") as f:
         config = json.load(f)

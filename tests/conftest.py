@@ -1,4 +1,13 @@
+import os
+from pathlib import Path
+
 import pytest
+
+os.environ.setdefault(
+    "DREAM_RECORDER_CONFIG",
+    str(Path(__file__).resolve().parents[1] / "config.example.json"),
+)
+
 from dream_recorder import app, socketio
 from unittest.mock import patch, MagicMock
 
@@ -17,4 +26,4 @@ def socketio_client():
 def mock_dream_db(monkeypatch):
     mock_db = MagicMock()
     monkeypatch.setattr('dream_recorder.dream_db', mock_db)
-    return mock_db 
+    return mock_db
