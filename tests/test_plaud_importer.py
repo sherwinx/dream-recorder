@@ -623,3 +623,89 @@ def test_main_exits_zero_when_every_step_succeeds(tmp_path, monkeypatch):
         plaud_importer.main(["sync", "--outbox-dir", str(outbox), "--pi-import-url", "http://pi.local"])
         == 0
     )
+
+
+def stub_all_steps(monkeypatch, calls):
+    monkeypatch.setattr(
+        plaud_importer,
+        "pull_recent_recordings",
+        lambda **kwargs: calls.append("pull") or {"pulled": 1, "skipped": 0},
+    )
+    monkeypatch.setattr(
+        plaud_importer,
+        "sync_dayone_pending",
+        lambda **kwargs: calls.append("dayone") or {"synced": 1, "failed": 0},
+    )
+    monkeypatch.setattr(
+        plaud_importer,
+        "upload_pending",
+        lambda **kwargs: calls.append("upload") or {"uploaded": 1, "failed": 0},
+    )
+
+
+def test_delivery_is_enabled_by_default(tmp_path, monkeypatch):
+    """The switch must fail open: an unset env var keeps the historical behaviour."""
+    monkeypatch.delenv(plaud_importer.DELIVERY_SWITCH_ENV, raising=False)
+    calls = []
+    stub_all_steps(monkeypatch, calls)
+
+    summary = plaud_importer.run_once(sync_args(tmp_path / "outbox"))
+
+    assert calls == ["pull", "dayone", "upload"]
+    assert summary["dayone"] == {"synced": 1, "failed": 0}
+    assert summary["upload"] == {"uploaded": 1, "failed": 0}
+
+
+def test_run_once_sends_nothing_onward_when_delivery_switch_is_off(tmp_path, monkeypatch):
+    """Paused means nothing leaves this machine -- no Day One entry, no Pi upload."""
+    monkeypatch.setenv(plaud_importer.DELIVERY_SWITCH_ENV, "0")
+    calls = []
+    stub_all_steps(monkeypatch, calls)
+
+    summary = plaud_importer.run_once(sync_args(tmp_path / "outbox"))
+
+    assert "dayone" not in calls
+    assert "upload" not in calls
+    assert summary["dayone"]["skipped"] is True
+    assert summary["upload"]["skipped"] is True
+
+
+def test_delivery_switch_off_still_pulls_into_the_outbox(tmp_path, monkeypatch):
+    """Keep collecting while paused so re-enabling backfills instead of losing recordings."""
+    monkeypatch.setenv(plaud_importer.DELIVERY_SWITCH_ENV, "off")
+    calls = []
+    stub_all_steps(monkeypatch, calls)
+
+    summary = plaud_importer.run_once(sync_args(tmp_path / "outbox"))
+
+    assert calls == ["pull"]
+    assert summary["pull"] == {"pulled": 1, "skipped": 0}
+
+
+def test_paused_delivery_is_reported_and_is_not_a_failure(tmp_path, monkeypatch, capsys):
+    """A silent skip is indistinguishable from a silent breakage, so say it out loud."""
+    monkeypatch.setattr(
+        plaud_importer,
+        "run_once",
+        lambda args: {
+            "pull": {"pulled": 0},
+            "dayone": {"skipped": True, "reason": "PLAUD_SYNC_ENABLED is off"},
+            "upload": {"skipped": True, "reason": "PLAUD_SYNC_ENABLED is off"},
+        },
+    )
+
+    exit_code = plaud_importer.main(
+        ["sync", "--outbox-dir", str(tmp_path / "outbox"), "--pi-import-url", "http://pi.local"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert plaud_importer.DELIVERY_SWITCH_ENV in captured.err
+    assert "dayone" in captured.err and "upload" in captured.err
+
+
+def test_plaud_launcher_currently_has_delivery_paused():
+    """The live launchd entrypoint must actually carry the off switch."""
+    runner = Path(__file__).resolve().parents[1] / "scripts" / "run_plaud_importer.sh"
+
+    assert f"export {plaud_importer.DELIVERY_SWITCH_ENV}=0" in runner.read_text(encoding="utf-8")

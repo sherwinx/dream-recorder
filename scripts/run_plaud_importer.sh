@@ -23,6 +23,11 @@ export PYTHONPATH="$REPO_DIR"
 # account/device, and recording identifiers to its US-hosted telemetry service.
 export PLAUD_TELEMETRY_DISABLED=1
 
+# PAUSED: Plaud content is pulled into the outbox but sent nowhere -- no Day One
+# entry, no upload to the Dream Recorder Pi. Set this to 1 (or delete the line)
+# to resume; the outbox backlog is delivered on the next run.
+export PLAUD_SYNC_ENABLED=0
+
 # The launchd plist invokes this via `/bin/zsh <script>`, so the shebang above is
 # ignored and the body must stay bash/zsh portable -- no PIPESTATUS. Appending
 # straight to the log keeps $? pointing at python (no pipeline) while still

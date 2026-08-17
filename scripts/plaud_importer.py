@@ -22,6 +22,10 @@ import requests
 
 DEFAULT_OUTBOX_DIR = "db/plaud_outbox"
 DEFAULT_PLAUD_CLI = "plaud"
+# Master switch for sending Plaud content onward. It gates only the outbound
+# steps -- pulling keeps filling the outbox while paused, so re-enabling
+# backfills whatever accumulated instead of losing it past --lookback-days.
+DELIVERY_SWITCH_ENV = "PLAUD_SYNC_ENABLED"
 DEFAULT_DAYONE_COMMAND = "/Applications/Day One.app/Contents/MacOS/dayone"
 DEFAULT_DAYONE_JOURNAL_NAME = "每日一记"
 DEFAULT_TIMEZONE = "America/Los_Angeles"
@@ -548,6 +552,19 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def is_delivery_enabled(env: dict[str, str] | None = None) -> bool:
+    """Whether Plaud content may leave this machine for Day One and the Pi.
+
+    Fails open: an unset or empty value keeps delivery on, so a fresh checkout
+    or a new machine behaves like it always has. Only an explicit off value
+    pauses it.
+    """
+    raw = (os.environ if env is None else env).get(DELIVERY_SWITCH_ENV)
+    if raw is None or not raw.strip():
+        return True
+    return raw.strip().lower() not in ("0", "false", "no", "off")
+
+
 def step_errors(summary: dict[str, Any]) -> dict[str, str]:
     return {
         name: result["error"]
@@ -583,30 +600,46 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
                 recording_id=args.recording_id,
             ),
         )
+    delivery_enabled = is_delivery_enabled()
+
+    def pause(name: str) -> None:
+        """Record the pause rather than dropping the step from the summary.
+
+        An absent key reads the same as a step that never ran, which is exactly
+        how a real breakage looks in the log.
+        """
+        summary[name] = {"skipped": True, "reason": f"{DELIVERY_SWITCH_ENV} is off"}
+
     if args.command in ("sync-dayone", "sync") and not args.skip_dayone:
-        step(
-            "dayone",
-            lambda: sync_dayone_pending(
-                outbox_dir=outbox_dir,
-                journal_name=args.dayone_journal_name,
-                dayone_command=args.dayone_command,
-                timezone_name=args.timezone,
-                recording_id=args.recording_id,
-            ),
-        )
-    if args.command in ("upload-pending", "sync") and not args.skip_pi_upload:
-
-        def upload() -> dict[str, Any]:
-            if not args.pi_import_url:
-                raise PlaudImporterError("--pi-import-url or PLAUD_PI_IMPORT_URL is required")
-            return upload_pending(
-                outbox_dir=outbox_dir,
-                pi_import_url=args.pi_import_url,
-                token=args.token,
-                recording_id=args.recording_id,
+        if not delivery_enabled:
+            pause("dayone")
+        else:
+            step(
+                "dayone",
+                lambda: sync_dayone_pending(
+                    outbox_dir=outbox_dir,
+                    journal_name=args.dayone_journal_name,
+                    dayone_command=args.dayone_command,
+                    timezone_name=args.timezone,
+                    recording_id=args.recording_id,
+                ),
             )
+    if args.command in ("upload-pending", "sync") and not args.skip_pi_upload:
+        if not delivery_enabled:
+            pause("upload")
+        else:
 
-        step("upload", upload)
+            def upload() -> dict[str, Any]:
+                if not args.pi_import_url:
+                    raise PlaudImporterError("--pi-import-url or PLAUD_PI_IMPORT_URL is required")
+                return upload_pending(
+                    outbox_dir=outbox_dir,
+                    pi_import_url=args.pi_import_url,
+                    token=args.token,
+                    recording_id=args.recording_id,
+                )
+
+            step("upload", upload)
     return summary
 
 
@@ -620,6 +653,19 @@ def main(argv: list[str]) -> int:
         # are still reported but excluded from that code, so a routinely
         # offline Pi does not desensitise us to real failures.
         errors = step_errors(summary)
+        # A paused step and a step that quietly stopped working produce the same
+        # empty log, so name the switch every run. Otherwise "nothing reached Day
+        # One" looks identical whether that was deliberate or a regression.
+        paused = sorted(
+            name for name, result in summary.items()
+            if isinstance(result, dict) and result.get("skipped")
+        )
+        if paused:
+            print(
+                f"plaud importer delivery paused ({DELIVERY_SWITCH_ENV} is off): "
+                f"{', '.join(paused)} not run; unset it to resume",
+                file=sys.stderr,
+            )
         best_effort = {"upload"} if args.pi_optional else set()
         for name, message in errors.items():
             label = "warning" if name in best_effort else "failed"
