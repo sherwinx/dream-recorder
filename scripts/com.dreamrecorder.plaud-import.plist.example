@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template. Copy to ~/Library/LaunchAgents/ and replace __REPO_DIR__ with the
+  absolute path of this checkout:
+
+      sed "s|__REPO_DIR__|$(cd "$(dirname "$0")/.." && pwd)|g" \
+        scripts/<this-file> > ~/Library/LaunchAgents/<label>.plist
+
+  launchd has no relative-path option, so the substitution is unavoidable. It is
+  a placeholder rather than a real path on purpose: the previous version carried
+  one developer's absolute path, which kept working right up until the checkout
+  moved and then failed silently.
+-->
 <plist version="1.0">
 <dict>
   <key>Label</key>
@@ -9,7 +21,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>
-    <string>/Users/spaceylamb/Desktop/vibe_coding/dreamrecorder/dream-recorder/scripts/run_plaud_importer.sh</string>
+    <string>__REPO_DIR__/scripts/run_plaud_importer.sh</string>
   </array>
 
   <key>StartCalendarInterval</key>

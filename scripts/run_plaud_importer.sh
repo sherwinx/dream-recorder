@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="/Users/spaceylamb/Desktop/vibe_coding/dreamrecorder/dream-recorder"
+# Self-locating, not hardcoded. The absolute path here broke when the
+# vibe_coding root moved: launchd still exec'd this script by its plist path,
+# the script cd'd to a directory that no longer existed, and `set -e` killed
+# the daily import with no log line — the same silent-failure shape the
+# resolve_node_bin.sh comment below is guarding against.
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_DIR"
 
 # /tmp logs are wiped on reboot, which is how a three-week outage went unnoticed.
